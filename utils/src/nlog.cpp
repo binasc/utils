@@ -22,6 +22,11 @@
 #include <unistd.h>
 
 #endif
+
+#ifdef __MACH__
+#define MSG_NOSIGNAL SO_NOSIGPIPE
+#endif
+
 namespace utils
 {
 bool NLog:: init(map<string,string> linfo)
