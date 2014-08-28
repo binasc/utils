@@ -13,6 +13,8 @@
 #include <string>
 #include <cassert>
 
+#include "utils.h"
+
 #define log_debug(fmt, ...) printf(fmt"\n", ##__VA_ARGS__)
 #define log_error(fmt, ...) fprintf(stderr, fmt"\n", ##__VA_ARGS__)
 //#define log_trace(fmt, ...) fprintf(stderr, fmt"\n", ##__VA_ARGS__)
@@ -350,50 +352,59 @@ void close_pair(int sock, fd_set *active_fd_set)
     }
 }
 
+static int s_daemon;
+static int s_partner;
+
 static string s_host;
 static uint16_t s_rport;
 static uint16_t s_lport;
 
 int options(int argc, char ** argv)
 {
-	int iOpt = 0;
-	int iQurVer = 0;
+    int iOpt = 0;
+    int iQurVer = 0;
 
-	while ((iOpt = getopt(argc, argv, "h:p:l:vSR")) != EOF)
-	{
-		switch (iOpt)
-		{
-			case 'h':
-				s_host = optarg;
-				break;
-			case 'p':
+    while ((iOpt = getopt(argc, argv, "dPh:p:l:vSR")) != EOF)
+    {
+        switch (iOpt)
+        {
+            case 'd':
+                s_daemon = 1;
+                break;
+            case 'P':
+                s_partner = 1;
+                break;
+            case 'h':
+                s_host = optarg;
+                break;
+            case 'p':
                 s_rport = atoi(optarg);
-				break;
-			case 'l':
+                break;
+            case 'l':
                 s_lport = atoi(optarg);
-				break;
-			case 'v' :
-				iQurVer = 1;
-				break;
+                break;
+            case 'v' :
+                iQurVer = 1;
+                break;
             case 'S':
                 s_send_obs = 1;
                 break;
             case 'R':
                 s_recv_obs = 1;
                 break;
-			default :
+            default :
                 log_error("invalid option -- '%c'", iOpt);
                 return -1;
-		}
-	}
+        }
+    }
 
-	if (iQurVer)
-	{
-		printf("nlog server build in %s %s\n", __DATE__, __TIME__);
-		return -1;
-	}
+    if (iQurVer)
+    {
+        printf("nlog server build in %s %s\n", __DATE__, __TIME__);
+        return -1;
+    }
 
-	return 0;
+    return 0;
 }
 
 int do_name_query(const char *name, struct sockaddr_in *addr)
@@ -440,6 +451,14 @@ int main(int argc, char *argv[])
     rc = options(argc, argv);
     if (rc == -1) {
         return -1;
+    }
+
+    if (s_daemon) {
+        utils_T_daemon(".");
+    }
+
+    if (s_partner) {
+        utils_T_partner("tunnel.pid", argv);
     }
 
     /* Create the socket and set it up to accept connections. */
@@ -500,14 +519,14 @@ int main(int argc, char *argv[])
                     rmt_ctx->read_handler = read_handler;
                     rmt_ctx->write_handler = write_handler;
                     rmt_ctx->connected  = rc;
-                    
+
                     s_client_ctx.insert(make_pair(nsock, cli_ctx));
                     s_remote_ctx.insert(make_pair(psock, rmt_ctx));
 
                     log_debug("%d: accepted %d from host %s, port %hd.",
-                              i, nsock,
-                              inet_ntoa(addr.sin_addr),
-                              ntohs(addr.sin_port));
+                            i, nsock,
+                            inet_ntoa(addr.sin_addr),
+                            ntohs(addr.sin_port));
 
                     FD_SET(nsock, &active_fd_set);
                     FD_SET(psock, &active_fd_set);
@@ -572,7 +591,7 @@ int main(int argc, char *argv[])
                 delete it->second;
                 s_closed_ctx.erase(it++);
                 log_debug("%d timedout, closed", psock);
-                
+
             }
             else {
                 it++;

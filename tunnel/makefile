@@ -1,9 +1,8 @@
 C_FLAGS= -Wall -Wpointer-arith -O0 -pipe -g -D_REENTRANT -D_GUN_SOURCE -D_NET_LOG
 CXX = g++
 AR = ar
-MPROXY_MODULE_PATH=../ngx_mproxy_module/
-INC= -Isrc/
-LIB_PATH= -Llib/
+INC= -Isrc/ -I../utils/inc
+LIB_PATH= -L../utils/lib -lutils
 LIB_FILE=
 SRC_DIR= src/
 OBJ_DIR= obj/
