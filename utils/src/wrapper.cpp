@@ -2,7 +2,7 @@
 #include "utils.hpp"
 
 #include "configure.h"
-#include "configure.cpp"
+#include "configure.hpp"
 
 //#include "nlog.h"
 #include "nlog.hpp"
@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <string.h>
 
 using namespace utils;
 using namespace std;
