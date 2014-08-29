@@ -28,7 +28,7 @@ $(OBJ_DIR)%$(OBJ_EXT): $(SRC_DIR)%$(CXXSRC_EXT)
 
 $(EXE): $(OBJECTS)
 	mkdir -p $(EXE_DIR)
-	$(CXX) -o $(EXE) $(INC) $(C_FLAGS) $(LIB_PATH) $(LIB_FILE) $^
+	$(CXX) -o $(EXE) $(INC) $(C_FLAGS) $^ $(LIB_PATH) $(LIB_FILE)
 
 clean:
 	rm -f $(EXE) $(OBJECTS)
