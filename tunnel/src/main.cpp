@@ -57,19 +57,29 @@ void stop_sending(int sock)
     FD_CLR(sock, &active_sfd_set);
 }
 
-typedef struct sock_ctx_s {
-    int (*read_handler)(int s, struct sock_ctx_s *ctx);
-    int (*write_handler)(int s, struct sock_ctx_s *ctx);
+class sock_ctx_t
+{
+public:
+    ~sock_ctx_t();
+    int (*read_handler)(int s, sock_ctx_t *ctx);
+    int (*write_handler)(int s, sock_ctx_t *ctx);
     int connected: 1;
     int closed: 1;
     int peer_sock;
     time_t timeout;
     list<pair<char *, size_t> > send_list;
-} sock_ctx_t;
+};
+
+sock_ctx_t::~sock_ctx_t()
+{
+    list<pair<char *, size_t> >::iterator it;
+    for (it = send_list.begin(); it != send_list.end(); it++) {
+        free(it->first);
+    }
+    send_list.clear();
+}
 
 static map<int, sock_ctx_t *> s_socket_ctx;
-//static map<int, sock_ctx_t *> s_client_ctx;
-//static map<int, sock_ctx_t *> s_remote_ctx;
 static map<int, sock_ctx_t *> s_closed_ctx;
 
 int peer_sock(int s)
@@ -92,7 +102,7 @@ sock_ctx_t *peer_ctx(int s)
     return NULL;
 }
 
-int read_handler(int s, struct sock_ctx_s *ctx)
+int read_handler(int s, sock_ctx_t *ctx)
 {
     int rc, err, nread;
     char *buf;
@@ -153,7 +163,7 @@ int read_handler(int s, struct sock_ctx_s *ctx)
     return 1;
 }
 
-int write_handler(int s, struct sock_ctx_s *ctx)
+int write_handler(int s, sock_ctx_t *ctx)
 {
     int rc, err, nsent;
     socklen_t len;
