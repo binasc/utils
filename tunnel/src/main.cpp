@@ -15,8 +15,9 @@
 
 #include "utils.h"
 
-#define log_debug(fmt, ...) printf(fmt"\n", ##__VA_ARGS__)
 #define log_error(fmt, ...) fprintf(stderr, fmt"\n", ##__VA_ARGS__)
+//#define log_debug(fmt, ...) printf(fmt"\n", ##__VA_ARGS__)
+#define log_debug(fmt, ...)
 //#define log_trace(fmt, ...) fprintf(stderr, fmt"\n", ##__VA_ARGS__)
 #define log_trace(fmt, ...)
 
@@ -41,6 +42,7 @@ void obscure_recv_buff(char *buf, size_t len)
     }
 }
 
+static fd_set active_rfd_set;
 static fd_set active_sfd_set;
 
 void notify_to_send(int sock)
@@ -65,17 +67,15 @@ typedef struct sock_ctx_s {
     list<pair<char *, size_t> > send_list;
 } sock_ctx_t;
 
-static map<int, sock_ctx_t *> s_client_ctx;
-static map<int, sock_ctx_t *> s_remote_ctx;
+static map<int, sock_ctx_t *> s_socket_ctx;
+//static map<int, sock_ctx_t *> s_client_ctx;
+//static map<int, sock_ctx_t *> s_remote_ctx;
 static map<int, sock_ctx_t *> s_closed_ctx;
 
 int peer_sock(int s)
 {
     map<int, sock_ctx_t *>::iterator it;
-    if ((it = s_client_ctx.find(s)) != s_client_ctx.end()) {
-        return it->second->peer_sock;
-    }
-    else if ((it= s_remote_ctx.find(s)) != s_remote_ctx.end()) {
+    if ((it = s_socket_ctx.find(s)) != s_socket_ctx.end()) {
         return it->second->peer_sock;
     }
 
@@ -85,11 +85,8 @@ int peer_sock(int s)
 sock_ctx_t *peer_ctx(int s)
 {
     map<int, sock_ctx_t *>::iterator it;
-    if ((it = s_client_ctx.find(s)) != s_client_ctx.end()) {
-        return s_remote_ctx[it->second->peer_sock];
-    }
-    else if ((it= s_remote_ctx.find(s)) != s_remote_ctx.end()) {
-        return s_client_ctx[it->second->peer_sock];
+    if ((it = s_socket_ctx.find(s)) != s_socket_ctx.end()) {
+        return s_socket_ctx[it->second->peer_sock];
     }
 
     return NULL;
@@ -121,6 +118,7 @@ int read_handler(int s, struct sock_ctx_s *ctx)
             if (err == EAGAIN || err == EWOULDBLOCK) {
                 break;
             }
+            free(buf);
             perror("recv");
             return -1;
         }
@@ -128,7 +126,8 @@ int read_handler(int s, struct sock_ctx_s *ctx)
             if (nread) {
                 log_debug("%d read %d bytes", s, nread);
             }
-            log_debug("%d closed by peer", s);
+            log_error("%d closed by peer", s);
+            free(buf);
             return 0;
         }
 
@@ -304,33 +303,35 @@ void wait_finishing_sending(int sock, sock_ctx_t *ctx, int timeout)
     s_closed_ctx.insert(make_pair(sock, ctx));
 }
 
-void close_pair(int sock, fd_set *active_fd_set)
+void close_pair(int sock)
 {
     int psock;
     sock_ctx_t *ctx, *pctx;
+    map<int, sock_ctx_t *>::iterator it;
 
-    if (s_client_ctx.find(sock) != s_client_ctx.end()) {
-        ctx = s_client_ctx[sock];
+    if ((it = s_socket_ctx.find(sock)) != s_socket_ctx.end()) {
+        ctx = it->second;
         psock = ctx->peer_sock;
-        pctx = s_remote_ctx[ctx->peer_sock];
-        s_client_ctx.erase(sock);
-        s_remote_ctx.erase(psock);
-    }
-    else if (s_remote_ctx.find(sock) != s_remote_ctx.end()) {
-        ctx = s_remote_ctx[sock];
-        psock = ctx->peer_sock;
-        pctx = s_client_ctx[ctx->peer_sock];
-        s_remote_ctx.erase(sock);
-        s_client_ctx.erase(psock);
+        s_socket_ctx.erase(it);
     }
     else {
+        log_error("sock: %d not found", sock);
+        return;
+    }
+
+    if ((it = s_socket_ctx.find(psock)) != s_socket_ctx.end()) {
+        pctx = it->second;
+        s_socket_ctx.erase(it);
+    }
+    else {
+        log_error("peer sock: %d not found", psock);
         return;
     }
 
     shutdown(sock, SHUT_RD);
     if (ctx->send_list.empty()) {
         delete ctx;
-        FD_CLR(sock, active_fd_set);
+        FD_CLR(sock, &active_rfd_set);
         stop_sending(sock);
         close(sock);
         log_debug("%d closed", sock);
@@ -342,7 +343,7 @@ void close_pair(int sock, fd_set *active_fd_set)
     shutdown(psock, SHUT_RD);
     if (pctx->send_list.empty()) {
         delete pctx;
-        FD_CLR(psock, active_fd_set);
+        FD_CLR(psock, &active_rfd_set);
         stop_sending(psock);
         close(psock);
         log_debug("%d peer closed", psock);
@@ -443,9 +444,10 @@ int do_name_query(const char *name, struct sockaddr_in *addr)
 int main(int argc, char *argv[])
 {
     int rc, i, sock, nsock, psock;
-    fd_set active_fd_set, read_fd_set, write_fd_set;
+    fd_set read_fd_set, write_fd_set;
     struct sockaddr_in addr, remote_addr;;
     sock_ctx_t *ctx, *cli_ctx, *rmt_ctx;
+    map<int, sock_ctx_t *>::iterator it;
     //struct timeval *tv;
 
     rc = options(argc, argv);
@@ -477,14 +479,14 @@ int main(int argc, char *argv[])
     }
 
     /* Initialize the set of active sockets. */
-    FD_ZERO(&active_fd_set);
-    FD_SET(sock, &active_fd_set);
+    FD_ZERO(&active_rfd_set);
     FD_ZERO(&active_sfd_set);
+    FD_SET(sock, &active_rfd_set);
 
     while (1)
     {
         /* Block until input arrives on one or more active sockets. */
-        read_fd_set = active_fd_set;
+        read_fd_set = active_rfd_set;
         write_fd_set = active_sfd_set;
         log_trace("select");
         if (select(FD_SETSIZE, &read_fd_set, &write_fd_set, NULL, NULL) < 0) {
@@ -520,61 +522,60 @@ int main(int argc, char *argv[])
                     rmt_ctx->write_handler = write_handler;
                     rmt_ctx->connected  = rc;
 
-                    s_client_ctx.insert(make_pair(nsock, cli_ctx));
-                    s_remote_ctx.insert(make_pair(psock, rmt_ctx));
+                    s_socket_ctx.insert(make_pair(nsock, cli_ctx));
+                    s_socket_ctx.insert(make_pair(psock, rmt_ctx));
 
-                    log_debug("%d: accepted %d from host %s, port %hd.",
-                            i, nsock,
-                            inet_ntoa(addr.sin_addr),
-                            ntohs(addr.sin_port));
+                    log_debug("%d: accepted %d from host %s, port %d.",
+                            i, nsock, inet_ntoa(addr.sin_addr), ntohs(addr.sin_port));
 
-                    FD_SET(nsock, &active_fd_set);
-                    FD_SET(psock, &active_fd_set);
+                    FD_SET(nsock, &active_rfd_set);
+                    FD_SET(psock, &active_rfd_set);
                     if (!rmt_ctx->connected) {
                         notify_to_send(psock);      // for connection
                     }
                 }
                 else {
                     ctx = NULL;
-                    if (s_client_ctx.find(i) != s_client_ctx.end()) {
-                        ctx = s_client_ctx[i];
+                    if ((it = s_socket_ctx.find(i)) != s_socket_ctx.end()) {
+                        ctx = it->second;
                     }
-                    else if (s_remote_ctx.find(i) != s_remote_ctx.end()) {
-                        ctx = s_remote_ctx[i];
-                    }
-
                     if (ctx && ctx->read_handler(i, ctx) <= 0) {
-                        close_pair(i, &active_fd_set);
+                        close_pair(i);
                     }
                 }
             }
             if (FD_ISSET(i, &write_fd_set)) {
                 ctx = NULL;
-                if (s_client_ctx.find(i) != s_client_ctx.end()) {
-                    ctx = s_client_ctx[i];
+                if ((it = s_socket_ctx.find(i)) != s_socket_ctx.end()) {
+                    ctx = it->second;
                 }
-                else if (s_remote_ctx.find(i) != s_remote_ctx.end()) {
-                    ctx = s_remote_ctx[i];
-                }
-                else if (s_closed_ctx.find(i) != s_closed_ctx.end()) {
-                    ctx = s_closed_ctx[i];
+                else if ((it = s_closed_ctx.find(i)) != s_closed_ctx.end()) {
+                    ctx = it->second;
                 }
 
                 if (ctx) {
                     rc = ctx->write_handler(i, ctx);
                     if (rc < 0) {
-                        close_pair(i, &active_fd_set);
+                        if (ctx->closed) {
+                            stop_sending(i);
+                            s_closed_ctx.erase(i);
+                            delete ctx;
+                            log_debug("%d closed", i);
+                        }
+                        else {
+                            close_pair(i);
+                        }
                     }
                     else if (rc == 0) {
                         stop_sending(i);
+                        if (ctx->closed) {
+                            s_closed_ctx.erase(i);
+                            delete ctx;
+                            log_debug("%d closed", i);
+                        }
                     }
                     else {
                         notify_to_send(i);
-                    }
-                    if (ctx->closed && ctx->send_list.empty() == true) {
-                        s_closed_ctx.erase(i);
-                        delete ctx;
-                        log_debug("%d closed", i);
                     }
                 }
             }
@@ -585,7 +586,7 @@ int main(int argc, char *argv[])
         map<int, sock_ctx_t *>::iterator it;
         for (it = s_closed_ctx.begin(); it != s_closed_ctx.end();) {
             if (it->second->timeout < curr) {
-                FD_CLR(it->first, &active_fd_set);
+                FD_CLR(it->first, &active_rfd_set);
                 stop_sending(it->first);
                 close(it->first);
                 delete it->second;
