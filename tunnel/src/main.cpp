@@ -125,10 +125,10 @@ int read_handler(int s, sock_ctx_t *ctx)
         rc = recv(s, buf, 4096, 0);
         if (rc == -1) {
             err = errno;
+            free(buf);
             if (err == EAGAIN || err == EWOULDBLOCK) {
                 break;
             }
-            free(buf);
             perror("recv");
             return -1;
         }
@@ -339,9 +339,9 @@ void close_pair(int sock)
     }
 
     shutdown(sock, SHUT_RD);
+    FD_CLR(sock, &active_rfd_set);
     if (ctx->send_list.empty()) {
         delete ctx;
-        FD_CLR(sock, &active_rfd_set);
         stop_sending(sock);
         close(sock);
         log_debug("%d closed", sock);
@@ -351,9 +351,9 @@ void close_pair(int sock)
     }
 
     shutdown(psock, SHUT_RD);
+    FD_CLR(psock, &active_rfd_set);
     if (pctx->send_list.empty()) {
         delete pctx;
-        FD_CLR(psock, &active_rfd_set);
         stop_sending(psock);
         close(psock);
         log_debug("%d peer closed", psock);
@@ -596,7 +596,6 @@ int main(int argc, char *argv[])
         map<int, sock_ctx_t *>::iterator it;
         for (it = s_closed_ctx.begin(); it != s_closed_ctx.end();) {
             if (it->second->timeout < curr) {
-                FD_CLR(it->first, &active_rfd_set);
                 stop_sending(it->first);
                 close(it->first);
                 delete it->second;
