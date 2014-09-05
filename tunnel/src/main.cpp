@@ -21,6 +21,10 @@
 //#define log_trace(fmt, ...) fprintf(stderr, fmt"\n", ##__VA_ARGS__)
 #define log_trace(fmt, ...)
 
+#ifndef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0
+#endif
+
 using namespace std;
 
 static int s_send_obs = 0;
@@ -189,7 +193,7 @@ int write_handler(int s, sock_ctx_t *ctx)
     log_trace("%d ctx: %p", s, ctx);
     while (!ctx->send_list.empty()) {
         pair<char *, size_t> &p = ctx->send_list.front();
-        rc = send(s, p.first, p.second, 0);
+        rc = send(s, p.first, p.second, MSG_NOSIGNAL);
         if (rc == -1) {
             err = errno;
             if (err == EAGAIN || err == EWOULDBLOCK) {
@@ -340,6 +344,7 @@ void close_pair(int sock)
 
     shutdown(sock, SHUT_RD);
     FD_CLR(sock, &active_rfd_set);
+    ctx->closed = 1;
     if (ctx->send_list.empty()) {
         delete ctx;
         stop_sending(sock);
@@ -352,6 +357,7 @@ void close_pair(int sock)
 
     shutdown(psock, SHUT_RD);
     FD_CLR(psock, &active_rfd_set);
+    pctx->closed = 1;
     if (pctx->send_list.empty()) {
         delete pctx;
         stop_sending(psock);
