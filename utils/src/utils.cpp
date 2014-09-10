@@ -1,134 +1,125 @@
-#include "utils.hpp"
-#include <stdio.h>
-#include <netinet/in.h>
-#include <signal.h>
 #include <fcntl.h>
-#include <iostream>
-#include <errno.h>
-#include <sys/time.h>
+#include <signal.h>
 #include <sys/resource.h>
-#include <string.h>
-#include <stdlib.h>
 #include <sys/stat.h>
 #include <unistd.h>
-namespace utils 
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "utils.hpp"
+
+namespace utils {
+
+void daemon(const char *path)
 {
-	namespace T
-	{
+    int fd;
+    pid_t pid;
+    struct rlimit limit;
 
-		void daemon(const char * path )
-		{
-			pid_t iPID;
-			
-			if((iPID = fork()) < 0) /* -1ÊÇ´´½¨Ê§°ÜµÄÇé¿ö */
-			{
-				//cout << "fork1 failed!" << endl;
-				exit(0);
-			}
-			else if(iPID > 0){       /* ´óÓÚ0ÊÇ½«×Ó½ø³ÌµÄPID´«»Ø¸ø¸¸½ø³Ì */
-				exit(0);
-			  }
-			/* ´´½¨ĞÂµÄsessionºÍprocess group£¬³ÉÎªÆäleader£¬²¢ÍÑÀë¿ØÖÆÖÕ¶Ë */
-			setsid();
-			
-			/* 
-			 * signalµÄµÚ¶ş¸ö²ÎÊıÊÇSIG_IGNÊ±£¬±íÊ¾µÚÒ»¸ö²ÎÊıËùÖ¸Ã÷ĞÅºÅ½«±»ºöÂÔ
-			 * ºöÂÔÖÕ¶ËIOĞÅºÅºÍÍ£Ö¹ĞÅºÅµÈ
-			 */
-			signal(SIGINT,  SIG_IGN);  /* À´×ÔÖÕ¶ËµÄctrl+cºÍdelete */
-			signal(SIGHUP,  SIG_IGN);  /* ·¢¸øÓë¿ØÖÆÖÕ¶ËÏàÁ¬µÄ½ø³Ì£¬±íÊ¾ÓëÖÕ¶ËµÄÁ¬½Ó¶Ï¿ª */
-			signal(SIGQUIT, SIG_IGN);  /* À´×ÔÖÕ¶ËµÄctrl+/ */
-			signal(SIGPIPE, SIG_IGN);  /* ÏòÃ»ÓĞ¶Á½ø³ÌµÄ¹ÜµÀĞ´´íÎó */
-			signal(SIGTTOU, SIG_IGN);  /* ºóÌ¨ÏòÖÕ¶ËĞ´ */
-			signal(SIGTTIN, SIG_IGN);  /* ºóÌ¨´ÓÖÕ¶Ë¶Á */
-			
-			//signal(SIGTERM, SIG_IGN);  /* ÓÉkillº¯Êı²úÉúµÄÈ±Ê¡ĞÅºÅ */
-		
-			if((iPID = fork()) < 0) 
-			{
-				//cout << "fork2 failed!" << endl;
-				exit(0);
-			}
-			else if(iPID > 0){ 
-				exit(0);
-			}
-		   /*
-			* ¹¤×÷Ä¿Â¼¸ü¸ÄÎª¸ùÄ¿Â¼¡£ÕâÊÇÎªÁË±£Ö¤ÎÒÃÇµÄ½ø³Ì²»Ê¹ÓÃÈÎºÎÄ¿Â¼¡£·ñÔòÎÒÃÇµÄÊØ»¤½ø³Ì½«Ò»Ö±
-			* Õ¼ÓÃÄ³¸öÄ¿Â¼£¬Õâ¿ÉÄÜ»áÔì³É³¬¼¶ÓÃ»§²»ÄÜĞ¶ÔØÒ»¸öÎÄ¼şÏµÍ³¡£ 
-			*/
-			if( NULL == path ) 
-			{
-				chdir("/");
-			}
-			else
-			{
-				chdir(path);
-			}
-			
-			//¹Ø±Õ´ò¿ªµÄÎÄµµÃèÊö·û£¬»òÖØ¶¨Ïò±ê×¼ÊäÈë¡¢±ê×¼Êä³öºÍ±ê×¼´íÎóÊä³öµÄÎÄµµÃèÊö·û¡£
-			//½ø³Ì´Ó´´½¨ËûµÄ¸¸½ø³ÌÄÇÀï¼Ì³ĞÁË´ò¿ªµÄÎÄµµÃèÊö·û¡£¼ÙÈç²»¹Ø±Õ£¬½«»áÀË·ÑÏµÍ³×ÊÔ´£¬
-			//ÒıÆğÎŞ·¨Ô¤ÁÏµÄ´íÎó¡£getdtablesize()·µ»ØÄ³¸ö½ø³ÌËùÄÜ´ò¿ªµÄ×î´óµÄÎÄµµÊı¡£
-			
-			for (int fd=0,fdtablesize=getdtablesize();fd < fdtablesize;fd++)
-			{
-					close(fd);
-				}
-			
-			
-			/*
-			 * ½«ÎÄ¼ş·½Ê½´´½¨ÆÁ±Î×ÖÉèÖÃÎª"0"¡£ÕâÊÇÒòÎªÓÉ¼Ì³ĞµÃÀ´µÄÎÄ¼ş´´½¨·½Ê½ÆÁ±Î×Ö¿ÉÄÜ»á½ûÖ¹Ä³Ğ©Ğí¿ÉÈ¨¡£
-			 * ÀıÈçÎÒÃÇµÄÊØ»¤½ø³ÌĞèÒª´´½¨Ò»×é¿É¶Á¿ÉĞ´µÄÎÄ¼ş£¬¶ø´ËÊØ»¤½ø³Ì´Ó¸¸½ø³ÌÄÇÀï¼Ì³ĞÀ´µÄÎÄ¼ş´´½¨·½Ê½
-			 * ÆÁ±Î×ÖÈ´ÓĞ¿ÉÄÜÆÁ±ÎµôÁËÕâÁ½ÖÖĞí¿ÉÈ¨£¬ÔòĞÂ´´½¨µÄÒ»×éÎÄ¼şÆä¶Á»òĞ´²Ù×÷¾Í²»ÄÜÉúĞ§¡£Òò´ËÒª½«ÎÄ¼ş
-			 * ·½Ê½´´½¨ÆÁ±Î×ÖÉèÖÃÎª"0"¡£
-			 */ 
-			umask(0);
-			signal(SIGCHLD, SIG_IGN); 
-			
-		}
-		
-		int lock_wait(const char * fname)
-		{
-			//cout<<"--lock----[fname:]"<<fname<<endl;
-			int fd = open(fname, O_RDWR | O_CREAT, 0666);
-			
-			if( fd < 0 ){
-				//perror("open");
-				return -1;
-			}
-			
-			struct flock lock;
-			lock.l_whence = SEEK_SET;
-			lock.l_start = 0;
-			lock.l_len = 0;
-			lock.l_type = F_WRLCK;
-		
-		  int error = -1;
-		  
-		  do{
-			
-			error = fcntl(fd, F_SETLKW, &lock);  	
-			
-		  }while(-1==error && EINTR == errno);
-		  
-			return 0;
-			
-		} 
+    if((pid = fork()) < 0) {
+        exit(EXIT_FAILURE);
+    }
+    else if (pid > 0) {
+        exit(0);
+    }
 
-		void partner(const char * lockname, char* argv[])  // argv ±ØĞëÓĞÁ½¸ö²ÎÊı
-		{
-			int ret = lock_wait(lockname);
-			if(0 == ret ){
-				//printf("lock ok\n");
-			  int pid = fork();
-			  if(0==pid){
-				//printf("[child] %s %s\n",arg[0],arg[1]);
-				execv(argv[0], argv);
-			  }
-			  sleep(1);
-			}	
-		}
-	
-	}
+    /* åˆ›å»ºæ–°çš„sessionå’Œprocess groupï¼Œæˆä¸ºå…¶leaderï¼Œå¹¶è„±ç¦»æ§åˆ¶ç»ˆç«¯ */
+    setsid();
+
+    /* 
+     * å¿½ç•¥ç»ˆç«¯IOä¿¡å·å’Œåœæ­¢ä¿¡å·ç­‰
+     */
+    signal(SIGCHLD, SIG_IGN);
+    signal(SIGHUP,  SIG_IGN);  /* å‘ç»™ä¸æ§åˆ¶ç»ˆç«¯ç›¸è¿çš„è¿›ç¨‹ï¼Œè¡¨ç¤ºä¸ç»ˆç«¯çš„è¿æ¥æ–­å¼€ */
+    signal(SIGINT,  SIG_IGN);  /* æ¥è‡ªç»ˆç«¯çš„^cå’Œdelete */
+    signal(SIGQUIT, SIG_IGN);  /* æ¥è‡ªç»ˆç«¯çš„^/ */
+    signal(SIGPIPE, SIG_IGN);  /* å‘æ²¡æœ‰è¯»è¿›ç¨‹çš„ç®¡é“å†™é”™è¯¯ */
+    signal(SIGTTOU, SIG_IGN);  /* åå°å‘ç»ˆç«¯å†™ */
+    signal(SIGTTIN, SIG_IGN);  /* åå°ä»ç»ˆç«¯è¯» */
+
+    if((pid = fork()) < 0) {
+        exit(EXIT_FAILURE);
+    }
+    else if (pid > 0) { 
+        exit(0);
+    }
+
+    /*
+     * å·¥ä½œç›®å½•æ›´æ”¹ä¸ºæ ¹ç›®å½•ã€‚è¿™æ˜¯ä¸ºäº†ä¿è¯æˆ‘ä»¬çš„è¿›ç¨‹ä¸ä½¿ç”¨ä»»ä½•ç›®å½•ã€‚å¦åˆ™æˆ‘ä»¬çš„å®ˆæŠ¤è¿›ç¨‹å°†ä¸€ç›´
+     * å ç”¨æŸä¸ªç›®å½•ï¼Œè¿™å¯èƒ½ä¼šé€ æˆè¶…çº§ç”¨æˆ·ä¸èƒ½å¸è½½ä¸€ä¸ªæ–‡ä»¶ç³»ç»Ÿã€‚ 
+     */
+    if(NULL == path) {
+        chdir("/");
+    }
+    else {
+        chdir(path);
+    }
+
+    /*
+     * å°†æ–‡ä»¶æ–¹å¼åˆ›å»ºå±è”½å­—è®¾ç½®ä¸º"0"ã€‚è¿™æ˜¯å› ä¸ºç”±ç»§æ‰¿å¾—æ¥çš„æ–‡ä»¶åˆ›å»ºæ–¹å¼å±è”½å­—å¯èƒ½ä¼šç¦æ­¢æŸäº›è®¸å¯æƒã€‚
+     * ä¾‹å¦‚æˆ‘ä»¬çš„å®ˆæŠ¤è¿›ç¨‹éœ€è¦åˆ›å»ºä¸€ç»„å¯è¯»å¯å†™çš„æ–‡ä»¶ï¼Œè€Œæ­¤å®ˆæŠ¤è¿›ç¨‹ä»çˆ¶è¿›ç¨‹é‚£é‡Œç»§æ‰¿æ¥çš„æ–‡ä»¶åˆ›å»ºæ–¹å¼
+     * å±è”½å­—å´æœ‰å¯èƒ½å±è”½æ‰äº†è¿™ä¸¤ç§è®¸å¯æƒï¼Œåˆ™æ–°åˆ›å»ºçš„ä¸€ç»„æ–‡ä»¶å…¶è¯»æˆ–å†™æ“ä½œå°±ä¸èƒ½ç”Ÿæ•ˆã€‚å› æ­¤è¦å°†æ–‡ä»¶
+     * æ–¹å¼åˆ›å»ºå±è”½å­—è®¾ç½®ä¸º"0"ã€‚
+     */ 
+    umask(0);
+
+    //å…³é—­æ‰“å¼€çš„æ–‡æ¡£æè¿°ç¬¦ï¼Œæˆ–é‡å®šå‘æ ‡å‡†è¾“å…¥ã€æ ‡å‡†è¾“å‡ºå’Œæ ‡å‡†é”™è¯¯è¾“å‡ºçš„æ–‡æ¡£æè¿°ç¬¦ã€‚
+    //è¿›ç¨‹ä»åˆ›å»ºä»–çš„çˆ¶è¿›ç¨‹é‚£é‡Œç»§æ‰¿äº†æ‰“å¼€çš„æ–‡æ¡£æè¿°ç¬¦ã€‚å‡å¦‚ä¸å…³é—­ï¼Œå°†ä¼šæµªè´¹ç³»ç»Ÿèµ„æºï¼Œ
+    //å¼•èµ·æ— æ³•é¢„æ–™çš„é”™è¯¯ã€‚
+    if (getrlimit(RLIMIT_NOFILE, &limit) != 0) {
+        exit(EXIT_FAILURE);
+    }
+
+    for (fd = limit.rlim_cur; fd > 0; fd--) {
+        close(fd);
+    }
+
+    signal(SIGCHLD, SIG_IGN); 
 }
 
-	
+int lock_wait(const char *fname)
+{
+    int fd, rc;;
+    struct flock lock;
+    char tmp[24];
+
+    fd = open(fname, O_RDWR | O_CREAT | O_TRUNC, 0666);
+    if (fd < 0) {
+        return -1;
+    }
+
+    sprintf(tmp, "%d", getpid());
+    write(fd, tmp, strlen(tmp));
+
+    lock.l_whence = SEEK_SET;
+    lock.l_start = 0;
+    lock.l_len = 0;
+    lock.l_type = F_WRLCK;
+
+    int error = -1;
+
+    do{
+        rc = fcntl(fd, F_SETLKW, &lock);
+    } while(-1 == error && EINTR == errno);
+
+    return 0;
+} 
+
+void partner(const char *lockname, char *argv[])
+{
+    int rc;
+    pid_t pid;
+
+    rc = lock_wait(lockname);
+    if(0 == rc){
+        if ((pid = fork()) == 0) {
+            execv(argv[0], argv);
+        }
+        sleep(1);
+    }
+}
+
+} // namespace utils
+

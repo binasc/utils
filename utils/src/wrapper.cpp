@@ -1,3 +1,10 @@
+#include <map>
+#include <string>
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdarg.h>
+#include <string.h>
+
 #include "utils.h"
 #include "utils.hpp"
 
@@ -7,29 +14,16 @@
 //#include "nlog.h"
 #include "nlog.hpp"
 
-#include <map>
-#include <string>
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdarg.h>
-#include <string.h>
-
-using namespace utils;
 using namespace std;
 
-void utils_T_daemon(const char *path)
+void utils_daemon(const char *path)
 {
-    T::daemon(path);
+    utils::daemon(path);
 }
 
-int utils_T_lock_wait(const char *fname)
+void utils_partner(const char *lockname, char *argv[])
 {
-    return T::lock_wait(fname);
-}
-
-void utils_T_partner(const char *lockname, char *argv[])
-{
-    T::partner(lockname, argv);
+    utils::partner(lockname, argv);
 }
 
 
@@ -37,7 +31,7 @@ configure_t *utils_new_configure()
 {
     configure_t *ret;
     try {
-        ret = (configure_t *)new Configure();
+        ret = (configure_t *)new utils::Configure();
     }
     catch (...) {
         return NULL;
@@ -47,19 +41,19 @@ configure_t *utils_new_configure()
 
 void utils_delete_configure(configure_t *c)
 {
-    delete (Configure *)c;
+    delete (utils::Configure *)c;
 }
 
 int uitls_configure_load(configure_t *c, const char *file)
 {
-    return ((Configure *)c)->load(file);
+    return ((utils::Configure *)c)->load(file);
 }
 
 int utils_configure_get_single_str(configure_t *c, const char *section, const char *key, char *val, size_t len)
 {
     int rc;
     string v;
-    rc = ((Configure *)c)->get_single(section, key, v);
+    rc = ((utils::Configure *)c)->get_single(section, key, v);
     if (rc == 0) {
         if (len < v.size()) {
             rc = -1;
@@ -73,7 +67,7 @@ int utils_configure_get_single_str(configure_t *c, const char *section, const ch
 
 int utils_configure_get_single_long(configure_t *c, const char *section, const char *key, long *val)
 {
-    return ((Configure *)c)->get_single(section, key, *val);
+    return ((utils::Configure *)c)->get_single(section, key, *val);
 }
 
 int utils_nlog_init(const char *rip, short rport, short lport, int level)
@@ -94,10 +88,13 @@ int utils_nlog_init(const char *rip, short rport, short lport, int level)
 
 int utils_nlog_log(int level, const char *fmt, ...)
 {
+    int rc;
     va_list ap;
+
     va_start(ap, fmt);
-    int ret = NLog::global_log.log((LogLevel)level, fmt, ap); // not safe
+    rc = utils::NLog::global_log.log((utils::LogLevel)level, fmt, ap); // not safe
     va_end(ap);
-    return ret;
+
+    return rc;
 }
 

@@ -5,11 +5,9 @@
 extern "C" {
 #endif
 
-void utils_T_daemon(const char *path);
+void utils_daemon(const char *path);
 
-int utils_T_lock_wait(const char *fname);
-
-void utils_T_partner(const char *lockname, char *argv[]);
+void utils_partner(const char *lockname, char *argv[]);
 
 #ifdef __cplusplus
 }

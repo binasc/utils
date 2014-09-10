@@ -1,18 +1,14 @@
-#include <stdio.h>
+#ifndef __UTILS_HPP__
+#define __UTILS_HPP__
 
-//! @namespace utils
-//! @brief utils命名空间
-//!
-//! Utils是一个基础工具库, 提供服务器开发常用的工具类.
-namespace utils 
-{
-	namespace T
-	{
-		void daemon(const char * path = NULL);
-		
-		int lock_wait(const char * fname);
-		
-		void partner(const char * lockname, char* argv[]); // 启动搭档进程， argv 里面参数必须带全路径
-	}
-}
+namespace utils {
+
+void daemon(const char *path = NULL);
+
+// 鍚姩鎼。杩涚▼锛宎rgv閲岄潰鍙傛暟蹇呴』甯﹀叏璺緞
+void partner(const char *lockname, char *argv[]);
+
+} // namespace utils
+
+#endif
 
