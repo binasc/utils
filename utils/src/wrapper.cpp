@@ -92,7 +92,7 @@ int utils_nlog_log(int level, const char *fmt, ...)
     va_list ap;
 
     va_start(ap, fmt);
-    rc = utils::NLog::global_log.log((utils::LogLevel)level, fmt, ap); // not safe
+    rc = utils::NLog::global_log.vlog((utils::LogLevel)level, fmt, ap); // not safe
     va_end(ap);
 
     return rc;
