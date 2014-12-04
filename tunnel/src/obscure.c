@@ -4,11 +4,18 @@
 #include <string.h>
 #include "network.h"
 
+static char s_key[4] = { 0x4a, 0x3f, 0xbc, 0x70 };
+
 char *xor(char *buf, size_t *len)
 {
     size_t i;
-    for (i = 0; i < *len; i++) {
+    for (i = 0; i < *len / 4; i++) {
+        ((int32_t *)buf)[i] = ~((int32_t *)buf)[i];
+        ((int32_t *)buf)[i] ^= *(int32_t *)s_key;
+    }
+    for (i = *len / 4; i < *len / 4 + *len % 4; i++) {
         buf[i] = ~buf[i];
+        buf[i] ^= s_key[i % 4];
     }
     return buf;
 }
@@ -40,7 +47,7 @@ char *http_enc(const char *http, size_t http_len,
     if (new_buf == NULL) {
         return NULL;
     }
-    sprintf(length, "%d", l);
+    sprintf(length, "%d", (int)sizeof(l) + l);
     memcpy(new_buf, http, http_len);
     memcpy(new_buf + http_len - 8, length, strlen(length));
     memcpy(new_buf + http_len, &l, sizeof(l));
