@@ -37,11 +37,14 @@ var adjustFontSize = function (v) {
         'div.content {' +
             'font-size: ' + fontSize + 'px' +
         '}' +
+        'div.content span {' +
+            'font-size: ' + fontSize + 'px' +
+        '}' +
         'div.content pre {' +
             'font-size: 15px' +
         '}' +
-        'div.content span {' +
-            'font-size: ' + fontSize + 'px' +
+        'div.content pre span {' +
+            'font-size: 15px' +
         '}' +
         'div.content h1 {' +
             'font-size: ' + (fontSize + 6) + 'px' +
