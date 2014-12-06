@@ -4,7 +4,10 @@
 #include <string.h>
 #include "network.h"
 
-static char s_key[4] = { 0x4a, 0x3f, 0xbc, 0x70 };
+int encode(char *inbuf, int inlen, char *outbuf);
+int decode(char *inbuf, int inlen, char *outbuf);
+
+static unsigned char s_key[4] = { 0x4a, 0x3f, 0xbc, 0x70 };
 
 char *xor(char *buf, size_t *len)
 {
@@ -21,60 +24,133 @@ char *xor(char *buf, size_t *len)
 }
 
 char http_post[] =
-    "POST / HTTP/1.1\r\n"\
-    "Host: home.binasc.tk\r\n"\
-    "Content-Type: application/vnd.ms-excel\r\n"\
-    "Content-Length:       \r\n\r\n";
+    "POST /upload HTTP/1.1\r\n"\
+    "Host: binasc.tk\r\n"\
+    "Connection: keep-alive\r\n"\
+    "Content-Type: image/bmp\r\n"\
+    "Content-Length: ";
+
+static unsigned char s_bmh[] = {
+    0x42, 0x4c,                 /* 'BM' */
+    0x00, 0x00, 0x00, 0x00,     /* file size in byte */
+    0x00, 0x00, 0x00, 0x00,     /* reserved */
+    0x36, 0x00, 0x00, 0x00,     /* content offset from start of file */
+    0x28, 0x00, 0x00, 0x00,
+    0x04, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,     /* height */
+    0x01, 0x00,
+    0x18, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,     /* content size in byte */
+    0x12, 0x0b, 0x00, 0x00,
+    0x12, 0x0b, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00
+};
+
+#define BM_HEADER_SIZE sizeof(s_bmh)
+#define BM_HEADER_FSIZE_OFFSET 2
+#define BM_HEADER_HEIGHT_OFFSET 22
+#define BM_HEADER_CSIZE_OFFSET 34
 
 char http_resp[] =
     "HTTP/1.1 200 OK\r\n"\
-    "Server: home.binasc.tk\r\n"\
-    "Content-Type: application/vnd.ms-excel\r\n"\
-    "Content-Length:       \r\n\r\n";
+    "Server: binasc.tk\r\n"\
+    "Connection: keep-alive\r\n"\
+    "Content-Type: image/bmp\r\n"\
+    "Content-Length: ";
 
 char *http_enc(const char *http, size_t http_len,
                char *buf, size_t *len)
 {
-    char length[8];
-    char *new_buf;
+    char length[9];
+    char *new_buf, *begin;
     size_t header_len;
+    size_t content_len;
+    content_len = ((*len + 1) / 12 + ((*len + 1) % 12 ? 1 : 0)) * 12;
 
-    int16_t l = *len;
+    header_len = http_len;
 
-    header_len = http_len + sizeof(l);
-
-    new_buf = malloc(header_len + l);
+    new_buf = malloc(header_len + 15 + BM_HEADER_SIZE + content_len);
     if (new_buf == NULL) {
         return NULL;
     }
-    sprintf(length, "%d", (int)sizeof(l) + l);
+    begin = new_buf;
+
+    sprintf(length, "%lu", BM_HEADER_SIZE + content_len);
+
     memcpy(new_buf, http, http_len);
-    memcpy(new_buf + http_len - 8, length, strlen(length));
-    memcpy(new_buf + http_len, &l, sizeof(l));
-    memcpy(new_buf + header_len, buf, l);
+    new_buf += http_len;
 
-    *len = header_len + l;
+    memcpy(new_buf, length, strlen(length));
+    new_buf += strlen(length);
 
-    printf("encode: header: %zu, len: %d\n", header_len, l);
+    memcpy(new_buf, "\r\n\r\n", 4);
+    new_buf += 4;
+
+    printf("encode: header: %zu, len: %zu\n", new_buf - begin, *len);
+
+    memcpy(new_buf, s_bmh, BM_HEADER_SIZE);
+    *(int32_t *)(new_buf + BM_HEADER_FSIZE_OFFSET) = BM_HEADER_SIZE + content_len;
+    *(int32_t *)(new_buf + BM_HEADER_HEIGHT_OFFSET) = content_len / 12; 
+    *(int32_t *)(new_buf + BM_HEADER_CSIZE_OFFSET) = content_len;
+    new_buf += BM_HEADER_SIZE;
+
+    memcpy(new_buf, buf, *len);
+    new_buf += content_len;
+
+    if ((*len + 1) % 12 == 0) {
+        *(unsigned char *)(new_buf - 1) = 1;
+    }
+    else {
+        *(unsigned char *)(new_buf - 1) = 12 - ((*len + 1) % 12) + 1;
+    }
+    printf("padding: %u\n", *(unsigned char *)(new_buf - 1));
+
+    *len = new_buf - begin;
+
     //free(buf);
 
-    return new_buf;
+    return begin;
 }
 
-int http_dec(const char *http, size_t http_len,
-             const nl_buf_t *in, nl_buf_t *out)
+int http_dec(const nl_buf_t *in, nl_buf_t *out)
 {
-    int16_t len;
+    int i, j;
     size_t header_len;
+    const char *eoh = "\r\n\r\n";
+    size_t content_len;
+    char *bmh;
+    unsigned char padding;
 
-    header_len = http_len + sizeof(int16_t);
-    if (in->len >= header_len) {
-        len = *(int16_t *)(in->buf + http_len);
-        if (in->len >= header_len + len) {
-            out->buf = in->buf + header_len;
-            out->len = len;
-            printf("decode: header: %zu, len: %d\n", header_len, len);
-            return header_len + len;
+    for (i = 0, j = 0; i < in->len; i++) {
+        for (j = 0; j < 4; j++) {
+            if (i + j == in->len) {
+                break;
+            }
+            else if (in->buf[i + j] != eoh[j]) {
+                break;
+            }
+        }
+        if (j == 4) {
+            break;
+        }
+    }
+    if (i + j == in->len || j < 4) {
+        return 0;
+    }
+
+    header_len = i + j;
+    if (in->len >= header_len + BM_HEADER_SIZE) {
+        bmh = in->buf + header_len;
+        content_len = *(int32_t *)(bmh + BM_HEADER_CSIZE_OFFSET);
+        if (in->len >= header_len + BM_HEADER_SIZE + content_len) {
+            out->buf = bmh +  BM_HEADER_SIZE;
+            padding = *(unsigned char *)(out->buf + content_len - 1);
+            out->len = content_len - padding;
+            printf("decode: header: %zu, len: %zu\n", header_len, out->len);
+            printf("padding: %u\n", padding);
+            return header_len + BM_HEADER_SIZE + content_len;
         }
     }
 
@@ -83,12 +159,12 @@ int http_dec(const char *http, size_t http_len,
 
 int acc_splitter(const nl_buf_t *in, nl_buf_t *out)
 {
-    return http_dec(http_post, sizeof(http_post) - 1, in, out);
+    return http_dec(in, out);
 }
 
 int con_splitter(const nl_buf_t *in, nl_buf_t *out)
 {
-    return http_dec(http_resp, sizeof(http_resp) - 1, in, out);
+    return http_dec(in, out);
 }
 
 void *acc_encode(void *buf, size_t *len)
