@@ -77,7 +77,7 @@ char *http_enc(const char *http, size_t http_len,
     }
     begin = new_buf;
 
-    sprintf(length, "%lu", BM_HEADER_SIZE + content_len);
+    sprintf(length, "%zu", BM_HEADER_SIZE + content_len);
 
     memcpy(new_buf, http, http_len);
     new_buf += http_len;
