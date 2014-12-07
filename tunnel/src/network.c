@@ -530,7 +530,7 @@ static int wrapper_connected(nl_socket_t *sock)
 }
 
 // TODO: multi-threads
-#define RECV_BUFF_SIZE 8192
+#define RECV_BUFF_SIZE 16384
 static char s_recv_buff[RECV_BUFF_SIZE];
 
 static int enlarge_buffer(nl_connection_t *c, size_t size)
@@ -669,6 +669,7 @@ static void nl_connection_destroy(nl_connection_t *c)
 
 static void linger_handler(nl_event_t *ev)
 {
+    log_debug("timeout!");
     nl_connection_destroy((nl_connection_t *)ev->data);
 }
 
@@ -778,7 +779,7 @@ int nl_connection_close(nl_connection_t *c)
         timeout = 0;
     }
     else if (!list_empty(c->tosend) /* && linger */) {
-        timeout = 5000;
+        timeout = 20000;
     }
     else {
         timeout = 0;
