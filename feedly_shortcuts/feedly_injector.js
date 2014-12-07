@@ -68,7 +68,7 @@ var adjustWidth = function (v) {
     localStorage.setItem('width', width);
 
     divWidthStyle.textContent = 
-        'div.selectedEntry div.entryholder div.u100Entry {' +
+        '#mainArea div.entryholder div.u100Entry {' +
             'max-width: ' + width + 'px' +
         '}' +
         'div.entryBody {' +
