@@ -38,7 +38,7 @@ var adjustFontSize = function (v) {
             'font-size: ' + fontSize + 'px' +
         '}' +
         'div.content b {' +
-            'font-size: ' + fontSize + 'px' +
+            'font-size: ' + fontSize + 'px !important' +
         '}' +
         'div.content span {' +
             'font-size: ' + fontSize + 'px' +
