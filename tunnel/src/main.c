@@ -188,8 +188,10 @@ int on_sent(nl_connection_t *c, nl_buf_t *buf)
     socket_data_t *data;
 
     data = c->data;
-    if (nl_connection_tosend_size(data->peer->c) <= SEND_BUFF_SIZE) {
-        nl_connection_resume_receiving(data->peer->c);
+    if (nl_connection_tosend_size(c) <= SEND_BUFF_SIZE) {
+        if (data->peer) {
+            nl_connection_resume_receiving(data->peer->c);
+        }
     }
 
     return 0;
