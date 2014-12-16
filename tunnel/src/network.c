@@ -381,7 +381,7 @@ int nl_queryname(const char *name, struct in_addr *addr)
 
     rc = getaddrinfo(name, NULL, &hints, &result);
     if (rc == -1) {
-        //log_error("getaddrinfo: %s", gai_strerror(rc));
+        log_error("getaddrinfo: %s", gai_strerror(rc));
         return -1;
     }
 
@@ -394,7 +394,7 @@ int nl_queryname(const char *name, struct in_addr *addr)
     }
 
     freeaddrinfo(result);
-    //log_error("cann't resolve %s", name);
+    log_error("cann't resolve %s", name);
     return -1;
 }
 
@@ -563,12 +563,14 @@ static int receive_handler(nl_connection_t *c, char *buf, size_t len)
 
     rc = 1;
     if (c->cbs.splitter != NULL) {
-        while ((n = c->cbs.splitter(&in, &out)) > 0) {
+        while ((n = c->cbs.splitter(c, &in, &out)) > 0) {
             in.buf += n;
             in.len -= n;
-            rc = c->cbs.on_received(c, &out);
-            if (rc == 0) {
-                break;
+            if (out.len > 0) {
+                rc = c->cbs.on_received(c, &out);
+                if (rc == 0) {
+                    break;
+                }
             }
         }
     }

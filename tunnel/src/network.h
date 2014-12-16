@@ -100,7 +100,7 @@ typedef struct nl_callback_s
         int (*on_connected)(struct nl_connection_s *);
     };
     /* optional */
-    int (*splitter)(const nl_buf_t *in, nl_buf_t *out);
+    int (*splitter)(struct nl_connection_s *c, const nl_buf_t *in, nl_buf_t *out);
     int (*on_received)(struct nl_connection_s *, nl_buf_t *buf);
     /* optional */
     int (*on_sent)(struct nl_connection_s *, nl_buf_t *buf);

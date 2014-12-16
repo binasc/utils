@@ -8,6 +8,8 @@
 
 #include "utils.h"
 #include "network.h"
+#include "obscure.h"
+#include "tunnel.h"
 
 #define log_error(fmt, ...) fprintf(stderr, fmt"\n", ##__VA_ARGS__)
 #define log_debug(fmt, ...) printf(fmt"\n", ##__VA_ARGS__)
@@ -75,27 +77,18 @@ int options(int argc, char ** argv)
     return 0;
 }
 
-typedef struct accept_data_s
-{
-    struct sockaddr_in remote_addr;
-} accept_data_t;
-
-#define ACCEPT_SIDE 0
-#define CONNECT_SIDE 1
-
-typedef struct socket_data_s
-{
-    struct socket_data_s    *peer;
-    nl_connection_t         *c;
-    unsigned                side :1;
-} socket_data_t;
-
 socket_data_t *socket_data_create()
 {
     socket_data_t *data;
 
     data = calloc(1, sizeof(socket_data_t));
     if (data == NULL) {
+        return NULL;
+    }
+
+    data->o = obscure_new();
+    if (data->o == NULL) {
+        free(data);
         return NULL;
     }
 
@@ -106,13 +99,6 @@ int on_accepted(nl_connection_t *c, nl_connection_t *nc);
 int on_received(nl_connection_t *c, nl_buf_t *buf);
 int on_sent(nl_connection_t *c, nl_buf_t *buf);
 void on_closed(nl_connection_t *c);
-
-int acc_splitter(const nl_buf_t *in, nl_buf_t *out);
-int con_splitter(const nl_buf_t *in, nl_buf_t *out);
-void *acc_encode(void *buf, size_t *len);
-void *con_encode(void *buf, size_t *len);
-void *acc_decode(void *buf, size_t *len);
-void *con_decode(void *buf, size_t *len);
 
 int on_accepted(nl_connection_t *c, nl_connection_t *nc)
 {
@@ -167,7 +153,6 @@ int on_accepted(nl_connection_t *c, nl_connection_t *nc)
 
 int on_received(nl_connection_t *c, nl_buf_t *buf)
 {
-    int need_free = 0;
     socket_data_t *data;
 
     data = c->data;
@@ -176,26 +161,20 @@ int on_received(nl_connection_t *c, nl_buf_t *buf)
     }
 
     if (s_acc_obs && data->side == CONNECT_SIDE) {
-        buf->buf = acc_encode(buf->buf, &buf->len);
-        need_free = 1;
+        buf->buf = acc_encode(data->o, buf->buf, &buf->len);
     }
     else if (s_con_obs && data->side == ACCEPT_SIDE) {
-        buf->buf = con_encode(buf->buf, &buf->len);
-        need_free = 1;
+        buf->buf = con_encode(data->o, buf->buf, &buf->len);
     }
     else if (s_acc_obs && data->side == ACCEPT_SIDE) {
-        buf->buf = acc_decode(buf->buf, &buf->len);
+        buf->buf = acc_decode(data->o, buf->buf, &buf->len);
     }
     else if (s_con_obs && data->side == CONNECT_SIDE) {
-        buf->buf = con_decode(buf->buf, &buf->len);
+        buf->buf = con_decode(data->o, buf->buf, &buf->len);
     }
 
 #define SEND_BUFF_SIZE 16384
     nl_connection_send(data->peer->c, buf);
-
-    if (need_free) {
-        free(buf->buf);
-    }
 
     if (nl_connection_tosend_size(data->peer->c) > SEND_BUFF_SIZE) {
         nl_connection_pause_receiving(c);
@@ -228,6 +207,7 @@ void on_closed(nl_connection_t *c)
         data->peer = NULL;
         nl_connection_close(peer->c);
     }
+    obscure_free(data->o);
     free(data);
 }
 
