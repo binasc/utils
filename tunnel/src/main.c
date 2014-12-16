@@ -15,6 +15,8 @@
 #define log_trace(fmt, ...) printf(fmt"\n", ##__VA_ARGS__)
 //#define log_trace(fmt, ...)
 
+// TODO: congestion control
+
 static int s_acc_obs = 0;
 static int s_con_obs = 0;
 
@@ -102,7 +104,8 @@ socket_data_t *socket_data_create()
 
 int on_accepted(nl_connection_t *c, nl_connection_t *nc);
 int on_received(nl_connection_t *c, nl_buf_t *buf);
-int on_closed(nl_connection_t *c);
+int on_sent(nl_connection_t *c, nl_buf_t *buf);
+void on_closed(nl_connection_t *c);
 
 int acc_splitter(const nl_buf_t *in, nl_buf_t *out);
 int con_splitter(const nl_buf_t *in, nl_buf_t *out);
@@ -125,14 +128,14 @@ int on_accepted(nl_connection_t *c, nl_connection_t *nc)
     svr_data->side = ACCEPT_SIDE;
 
     nc->cbs.on_received = on_received;
+    nc->cbs.on_sent = on_sent;
     nc->cbs.on_closed = on_closed;
     if (s_acc_obs) {
         nc->cbs.splitter = acc_splitter;
     }
     nc->data = svr_data;
 
-    nl_select_begin_recv(nc->sock);
-
+    nl_connection_resume_receiving(nc);
     cc = nl_connection(c->sock->ctx);
     if (cc == NULL) {
     }
@@ -144,6 +147,7 @@ int on_accepted(nl_connection_t *c, nl_connection_t *nc)
     cli_data->side = CONNECT_SIDE;
 
     cc->cbs.on_received = on_received;
+    cc->cbs.on_sent = on_sent;
     cc->cbs.on_closed = on_closed;
     if (s_con_obs) {
         cc->cbs.splitter = con_splitter;
@@ -186,16 +190,33 @@ int on_received(nl_connection_t *c, nl_buf_t *buf)
         buf->buf = con_decode(buf->buf, &buf->len);
     }
 
+#define SEND_BUFF_SIZE 16384
     nl_connection_send(data->peer->c, buf);
 
     if (need_free) {
         free(buf->buf);
     }
 
+    if (nl_connection_tosend_size(data->peer->c) > SEND_BUFF_SIZE) {
+        nl_connection_pause_receiving(c);
+        return 0;
+    }
     return 1;
 }
 
-int on_closed(nl_connection_t *c)
+int on_sent(nl_connection_t *c, nl_buf_t *buf)
+{
+    socket_data_t *data;
+
+    data = c->data;
+    if (nl_connection_tosend_size(data->peer->c) <= SEND_BUFF_SIZE) {
+        nl_connection_resume_receiving(data->peer->c);
+    }
+
+    return 0;
+}
+
+void on_closed(nl_connection_t *c)
 {
     socket_data_t *data, *peer;
 
@@ -208,8 +229,6 @@ int on_closed(nl_connection_t *c)
         nl_connection_close(peer->c);
     }
     free(data);
-
-    return 0;
 }
 
 int main(int argc, char *argv[])
@@ -257,7 +276,13 @@ int main(int argc, char *argv[])
     c->cbs.on_accepted = on_accepted;
     c->data = data;
 
-    rc = nl_connection_listen(c, s_lport, 1);
+    struct sockaddr_in local;
+    memset(&local, sizeof(local), 0);
+    local.sin_family = AF_INET;
+    local.sin_addr.s_addr = inet_addr("0.0.0.0");
+    local.sin_port = htons(s_lport);
+
+    rc = nl_connection_listen(c, &local, 1);
     if (rc < 0) {
         return -1;
     }

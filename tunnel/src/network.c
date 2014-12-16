@@ -6,10 +6,9 @@
 #include <sys/socket.h>
 #include <netdb.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include "network.h"
 
-/* perror */
-#include <stdio.h>
 
 #ifndef MSG_NOSIGNAL
 #define MSG_NOSIGNAL SO_NOSIGPIPE
@@ -70,7 +69,7 @@ int nl_select_loop(nl_context_t *ctx)
 
         rc = select(FD_SETSIZE, &recv_fd_set, &send_fd_set, NULL, &timeout);
         if (rc < 0) {
-            perror("select");
+            log_error("select: %s", strerror(errno));
         }
 
         for (i = 0; i < FD_SETSIZE; ++i) {
@@ -100,11 +99,10 @@ int nl_select_loop(nl_context_t *ctx)
                     len = sizeof(err);
                     rc = getsockopt(i, SOL_SOCKET, SO_ERROR, &err, &len);
                     if (rc == -1) {
-                        perror("getsockopt");
+                        log_error("getsockopt: %s", strerror(errno));
                     }
                     else if (err != 0) {
-                        //log_error("connect: so_error: %d", err);
-                        fprintf(stderr, "error %d\n", err);
+                        log_error("connect: so_error: %d", err);
                     }
                     else {
                         curr_sock->connected = 1;
@@ -155,20 +153,20 @@ nl_socket_t *nl_socket(nl_context_t *ctx)
 
     fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd == -1) {
-        perror("socket");
+        log_error("socket: %s", strerror(errno));
         return NULL;
     }
 
     flags = fcntl(fd, F_GETFL, 0);
     if (flags == -1) {
-        perror("fcntl");
+        log_error("fcntl F_GETFL: %s", strerror(errno));
         close(fd);
         return NULL;
     }
 
     flags = fcntl(fd, F_SETFL, flags | O_NONBLOCK);
     if (flags == -1) {
-        perror("fcntl");
+        log_error("fcntl F_SETFL: %s", strerror(errno));
         close(fd);
         return NULL;
     }
@@ -183,37 +181,30 @@ nl_socket_t *nl_socket(nl_context_t *ctx)
     return &ctx->sockets[fd];
 }
 
-int nl_select_listen(nl_socket_t *sock,
-                     unsigned short port, int backlog)
+int nl_select_listen(nl_socket_t *sock, struct sockaddr_in *addr, int backlog)
 {
     int                 rc, on;
-    struct sockaddr_in  addr;
     nl_context_t        *ctx;
 
     on = 1;
     rc = setsockopt(sock->fd, SOL_SOCKET, SO_REUSEADDR,
                     (const void *)&on , sizeof(int));
     if (rc == -1) {
-        perror("setsockopt");
+        log_error("setsockopt: %s", strerror(errno));
         close(sock->fd);
         return -1;
     }
 
-    memset(&addr, sizeof(addr), 0);
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = inet_addr("0.0.0.0");
-    addr.sin_port = htons(port);
-
-    rc = bind(sock->fd, (struct sockaddr *)&addr, sizeof(addr));
+    rc = bind(sock->fd, (struct sockaddr *)addr, sizeof(struct sockaddr_in));
     if (rc == -1) {
-        perror("bind");
+        log_error("bind: %s", strerror(errno));
         close(sock->fd);
         return -1;
     }
 
     rc = listen(sock->fd, backlog);
     if (rc < 0) {
-        perror("listen");
+        log_error("listen: %s", strerror(errno));
         close(sock->fd);
         return -1;
     }
@@ -244,7 +235,7 @@ int nl_select_connect(nl_socket_t *sock, struct sockaddr_in *addr)
         }
     }
     else if (errno != EINPROGRESS) {
-        perror("connect");
+        log_error("connect: %s", strerror(errno));
         close(sock->fd);
         return -1;
     }
@@ -270,7 +261,7 @@ nl_socket_t *nl_select_accept(nl_socket_t *sock)
     if (fd < 0) {
         err = errno;
         if (err != EAGAIN && err != EWOULDBLOCK) {
-            perror("accept");
+            log_error("accept: %s", strerror(errno));
             sock->accept_error = 1;
         }
         return NULL;
@@ -278,14 +269,14 @@ nl_socket_t *nl_select_accept(nl_socket_t *sock)
 
     flags = fcntl(fd, F_GETFL, 0);
     if (flags == -1) {
-        perror("fcntl");
+        log_error("fcntl F_GETFL: %s", strerror(errno));
         close(fd);
         return NULL;
     }
 
     flags = fcntl(fd, F_SETFL, flags | O_NONBLOCK);
     if (flags == -1) {
-        perror("fcntl");
+        log_error("fcntl F_SETFL: %s", strerror(errno));
         close(fd);
         return NULL;
     }
@@ -313,8 +304,8 @@ int nl_select_recv(nl_socket_t *sock, char *buf, size_t len)
         if (err == EAGAIN || err == EWOULDBLOCK) {
             return -1;
         }
-        perror("recv");
-        return -1;
+        log_error("recv: %s", strerror(errno));
+        return -2;
     }
 
     log_trace("#%d: recv %d", sock->fd, rc);
@@ -332,7 +323,7 @@ int nl_select_send(nl_socket_t *sock, char *buf, size_t len)
         if (err == EAGAIN || err == EWOULDBLOCK) {
             return -1;
         }
-        perror("send");
+        log_error("send: %s", strerror(errno));
         return -2;
     }
 
@@ -352,12 +343,12 @@ int nl_select_close(nl_socket_t *sock)
     return close(sock->fd);
 }
 
-void nl_select_begin_recv(nl_socket_t *sock)
+void nl_select_start_recv(nl_socket_t *sock)
 {
     FD_SET(sock->fd, &sock->ctx->recv_fd_set);
 }
 
-void nl_select_begin_send(nl_socket_t *sock)
+void nl_select_start_send(nl_socket_t *sock)
 {
     FD_SET(sock->fd, &sock->ctx->send_fd_set);
 }
@@ -523,15 +514,11 @@ static int wrapper_connected(nl_socket_t *sock)
         c->cbs.on_connected(c);
     }
     else {
-        nl_select_begin_recv(sock);
+        nl_select_start_recv(sock);
     }
 
     return list_empty(c->tosend) ? 0 : 1;
 }
-
-// TODO: multi-threads
-#define RECV_BUFF_SIZE 16384
-static char s_recv_buff[RECV_BUFF_SIZE];
 
 static int enlarge_buffer(nl_connection_t *c, size_t size)
 {
@@ -580,13 +567,16 @@ static int receive_handler(nl_connection_t *c, char *buf, size_t len)
             in.buf += n;
             in.len -= n;
             rc = c->cbs.on_received(c, &out);
+            if (rc == 0) {
+                break;
+            }
         }
     }
     else {
         out = in;
-        rc = c->cbs.on_received(c, &out);
         in.buf += in.len;
         in.len = 0;
+        rc = c->cbs.on_received(c, &out);
     }
 
     if (in.len > 0) {
@@ -602,6 +592,11 @@ static int receive_handler(nl_connection_t *c, char *buf, size_t len)
 
 static int wrapper_receive(nl_socket_t *sock)
 {
+
+// TODO: multi-threads
+#define RECV_BUFF_SIZE 16384
+    static char s_recv_buff[RECV_BUFF_SIZE];
+
     int rc;
     nl_connection_t *c;
 
@@ -669,25 +664,32 @@ static void nl_connection_destroy(nl_connection_t *c)
 
 static void linger_handler(nl_event_t *ev)
 {
-    log_debug("timeout!");
     nl_connection_destroy((nl_connection_t *)ev->data);
 }
 
 static int wrapper_send(nl_socket_t *sock)
 {
     nl_connection_t     *c;
-    nl_buf_t            *buf;
+    nl_buf_t            *buf, snd;
     int                 rc;
 
     c = sock->data;
     while (!list_empty(c->tosend)) {
         buf = (nl_buf_t *)list_front(c->tosend);
         rc = nl_select_send(sock, buf->buf, buf->len);
+        snd.buf = buf->buf;
+        snd.len = rc;
         if (rc == (int)buf->len) {
+            if (c->cbs.on_sent) {
+                c->cbs.on_sent(c, &snd);
+            }
             free(buf->buf);
             list_pop_front(c->tosend);
         }
         else if (rc > 0 && rc < buf->len) {
+            if (c->cbs.on_sent) {
+                c->cbs.on_sent(c, &snd);
+            }
             memmove(buf->buf, buf->buf + rc, buf->len - rc);
             buf->len -= rc;
         }
@@ -738,11 +740,10 @@ nl_connection_t *nl_connection(nl_context_t *ctx)
     return c;
 }
 
-int nl_connection_listen(nl_connection_t *c,
-                         unsigned short port, int backlog)
+int nl_connection_listen(nl_connection_t *c, struct sockaddr_in *addr, int backlog)
 {
     c->sock->ops.accept = wrapper_accept;
-    return nl_select_listen(c->sock, port, backlog);
+    return nl_select_listen(c->sock, addr, backlog);
 }
 
 int nl_connection_connect(nl_connection_t *c, struct sockaddr_in *addr)
@@ -755,6 +756,10 @@ int nl_connection_send(nl_connection_t *c, nl_buf_t *buf)
 {
     nl_buf_t tosend;
 
+    if (c->closing_ev.timer_set) {
+        return -1;
+    }
+
     tosend.buf = malloc(buf->len);
     if (tosend.buf == NULL) {
         return -1;
@@ -762,32 +767,75 @@ int nl_connection_send(nl_connection_t *c, nl_buf_t *buf)
     memcpy(tosend.buf, buf->buf, buf->len);
     tosend.len = buf->len;
     list_push_back(c->tosend, &tosend);
-    nl_select_begin_send(c->sock);
+    nl_select_start_send(c->sock);
 
     return 0;
+}
+
+size_t nl_connection_tosend_size(nl_connection_t *c)
+{
+    size_t s;
+    struct list_iterator_t it;
+
+    s = 0;
+    for (it = list_begin(c->tosend);
+         !list_iterator_equal(it, list_end(c->tosend));
+         it = list_iterator_next(it)) {
+        s += ((nl_buf_t *)list_iterator_item(it))->len;
+    }
+
+    return s;
 }
 
 int nl_connection_close(nl_connection_t *c)
 {
     int timeout;
-    printf("closing %p\n", c);
+
     if (c->closing_ev.timer_set) {
         return 0;
     }
 
+    timeout = 0;
     if (c->error) {
         timeout = 0;
     }
     else if (!list_empty(c->tosend) /* && linger */) {
         timeout = 20000;
     }
+
+    if (timeout == 0) {
+        log_debug("#%d: closing in next loop", c->sock->fd);
+    }
     else {
-        timeout = 0;
+        log_debug("#%d: closing in %d ms", c->sock->fd, timeout);
     }
 
     c->closing_ev.handler = linger_handler;
     c->closing_ev.data = c;
     nl_select_add_event(c->sock->ctx, &c->closing_ev, timeout);
     return 0;
+}
+
+void nl_connection_pause_receiving(nl_connection_t *c)
+{
+    nl_select_stop_recv(c->sock);
+}
+
+void nl_connection_resume_receiving(nl_connection_t *c)
+{
+    nl_select_start_recv(c->sock);
+    if (c->remain.len > 0) {
+        wrapper_receive(c->sock);
+    }
+}
+
+void nl_connection_pause_sending(nl_connection_t *c)
+{
+    nl_select_stop_send(c->sock);
+}
+
+void nl_connection_resume_sending(nl_connection_t *c)
+{
+    nl_select_start_send(c->sock);
 }
 
