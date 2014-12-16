@@ -44,18 +44,15 @@ void obscure_free(obscure_t *o)
 
 static unsigned char s_key[4] = { 0x4a, 0x3f, 0xbc, 0x70 };
 
-char *xor(char *buf, size_t *len)
+char *xor(obscure_t *o, char *buf, size_t *len)
 {
-    return buf;
     size_t i;
-    for (i = 0; i < *len / 4; i++) {
-        ((int32_t *)buf)[i] = ~((int32_t *)buf)[i];
-        ((int32_t *)buf)[i] ^= *(int32_t *)s_key;
-    }
-    for (i = *len / 4; i < *len / 4 + *len % 4; i++) {
+    for (i = 0; i < *len; i++) {
         buf[i] = ~buf[i];
-        buf[i] ^= s_key[i % 4];
+        buf[i] ^= s_key[(o->last_key++) % 4];
     }
+    o->last_key %= 4;
+
     return buf;
 }
 
@@ -244,27 +241,27 @@ int con_splitter(nl_connection_t *c, const nl_buf_t *in, nl_buf_t *out)
 
 void *acc_encode(obscure_t *o, void *buf, size_t *len)
 {
-    buf = xor(buf, len);
+    buf = xor(o, buf, len);
     buf = http_enc(o, http_resp, sizeof(http_resp) - 1, buf, len);
     return buf;
 }
 
 void *con_encode(obscure_t *o, void *buf, size_t *len)
 {
-    buf = xor(buf, len);
+    buf = xor(o, buf, len);
     buf = http_enc(o, http_post, sizeof(http_post) - 1, buf, len);
     return buf;
 }
 
 void *acc_decode(obscure_t *o, void *buf, size_t *len)
 {
-    buf = xor(buf, len);
+    buf = xor(o, buf, len);
     return buf;
 }
 
 void *con_decode(obscure_t *o, void *buf, size_t *len)
 {
-    buf = xor(buf, len);
+    buf = xor(o, buf, len);
     return buf;
 }
 
