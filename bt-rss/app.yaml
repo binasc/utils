@@ -1,0 +1,22 @@
+application: bt-rss
+version: 5
+runtime: python27
+api_version: 1
+threadsafe: yes
+
+handlers:
+- url: /favicon\.ico
+  static_files: favicon.ico
+  upload: favicon\.ico
+
+- url: /rss\.xml
+  script: main.app
+
+- url: /test
+  script: main.app
+
+libraries:
+- name: webapp2
+  version: latest
+- name: lxml
+  version: latest 

@@ -1,0 +1,5 @@
+cron:
+- description: load rss items by midnight
+  url: /mydrivers.xml
+  schedule: every day 23:45
+  timezone: Asia/Shanghai
