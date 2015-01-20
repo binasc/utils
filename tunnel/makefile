@@ -1,36 +1,32 @@
-C_FLAGS= -Werror -Wall -Wpointer-arith -O0 -pipe -g -D_REENTRANT -D_GUN_SOURCE -D_NET_LOG
-#CC = gcc
-AR = ar
-INC= -Isrc/ -I../utils/inc
-LIB_PATH= -L../utils/lib -lutils -lstdc++
-LIB_FILE=
-SRC_DIR= src/
-OBJ_DIR= obj/
-SOURCES_FILES_CPP=$(wildcard $(SRC_DIR)*.c)
-OBJECTS = $(patsubst %.c,$(OBJ_DIR)%.o,$(notdir $(SOURCES_FILES_CPP)))
+INC := -Isrc -I../utils/inc
+CFLAGS := -Werror -Wall -O0 -g -MMD -MP $(INC)
+LDLIBS := -L../utils/lib -lutils -lstdc++
+SRC_DIR := src/
+OBJ_DIR := obj/
+BIN_DIR := bin/
 
-EXE_DIR= bin/
-EXE= $(EXE_DIR)tun
+TARGET := $(BIN_DIR)tun
 
-OBJ_EXT= .o
-CSRC_EXT= .c
+SRCS := $(wildcard $(SRC_DIR)*.c)
+OBJS := $(patsubst %.c, $(OBJ_DIR)%.o, $(notdir $(SRCS)))
+DEPS := $(patsubst %.c, $(OBJ_DIR)%.d, $(notdir $(SRCS)))
 
-.PHONY: all clean module
+.PHONY: all clean
 
-all: $(EXE)
+all:
+	@mkdir -p $(OBJ_DIR)
+	@mkdir -p $(BIN_DIR)
+	@$(MAKE) $(TARGET)
 
-$(OBJ_DIR)%$(OBJ_EXT): $(SRC_DIR)%$(CSRC_EXT)
-	@echo
-	@echo "Compiling $< ==> $@"
-	@echo "mkdir -p $(OBJ_DIR)"
-	mkdir -p $(OBJ_DIR)
-	$(CC) $(INC) $(C_FLAGS) -c $< -o $@
+$(TARGET): $(OBJS)
+	$(CC) -o $@ $(CFLAGS) $(LDLIBS) $^
 
-$(EXE): $(OBJECTS)
-	mkdir -p $(EXE_DIR)
-	$(CC) -o $(EXE) $(INC) $(C_FLAGS) $^ $(LIB_PATH) $(LIB_FILE)
+$(OBJ_DIR)%.o: $(SRC_DIR)%.c
+	$(CC) -o $@ -c $(CFLAGS) $<
+
+-include $(DEPS)
 
 clean:
-	rm -f $(EXE) $(OBJECTS)
+	rm -f $(TARGET) $(OBJS) $(DEPS)
 	rm -rf $(OBJ_DIR)
 
