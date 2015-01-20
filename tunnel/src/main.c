@@ -10,12 +10,7 @@
 #include "network.h"
 #include "obscure.h"
 #include "tunnel.h"
-
-#define log_error(fmt, ...) fprintf(stderr, fmt"\n", ##__VA_ARGS__)
-#define log_debug(fmt, ...) printf(fmt"\n", ##__VA_ARGS__)
-//#define log_debug(fmt, ...)
-#define log_trace(fmt, ...) printf(fmt"\n", ##__VA_ARGS__)
-//#define log_trace(fmt, ...)
+#include "log.h"
 
 // TODO: congestion control
 
@@ -95,12 +90,12 @@ socket_data_t *socket_data_create()
     return data;
 }
 
-int on_accepted(nl_connection_t *c, nl_connection_t *nc);
-int on_received(nl_connection_t *c, nl_buf_t *buf);
-int on_sent(nl_connection_t *c, nl_buf_t *buf);
+void on_accepted(nl_connection_t *c, nl_connection_t *nc);
+void on_received(nl_connection_t *c, nl_buf_t *buf);
+void on_sent(nl_connection_t *c, nl_buf_t *buf);
 void on_closed(nl_connection_t *c);
 
-int on_accepted(nl_connection_t *c, nl_connection_t *nc)
+void on_accepted(nl_connection_t *c, nl_connection_t *nc)
 {
     int                 rc;
     accept_data_t       *acc_data;
@@ -121,8 +116,8 @@ int on_accepted(nl_connection_t *c, nl_connection_t *nc)
     }
     nc->data = svr_data;
 
-    nl_connection_resume_receiving(nc);
-    cc = nl_connection(c->sock->ctx);
+    nl_event_add(&nc->sock.rev);
+    cc = nl_connection();
     if (cc == NULL) {
     }
 
@@ -147,17 +142,15 @@ int on_accepted(nl_connection_t *c, nl_connection_t *nc)
     rc = nl_connection_connect(cc, &acc_data->remote_addr);
     if (rc < 0) {
     }
-
-    return 1;
 }
 
-int on_received(nl_connection_t *c, nl_buf_t *buf)
+void on_received(nl_connection_t *c, nl_buf_t *buf)
 {
     socket_data_t *data;
 
     data = c->data;
     if (data->peer == NULL) {
-        return 0;
+        return;
     }
 
     if (s_acc_obs && data->side == CONNECT_SIDE) {
@@ -178,12 +171,10 @@ int on_received(nl_connection_t *c, nl_buf_t *buf)
 
     if (nl_connection_tosend_size(data->peer->c) > SEND_BUFF_SIZE) {
         nl_connection_pause_receiving(c);
-        return 0;
     }
-    return 1;
 }
 
-int on_sent(nl_connection_t *c, nl_buf_t *buf)
+void on_sent(nl_connection_t *c, nl_buf_t *buf)
 {
     socket_data_t *data;
 
@@ -193,8 +184,6 @@ int on_sent(nl_connection_t *c, nl_buf_t *buf)
             nl_connection_resume_receiving(data->peer->c);
         }
     }
-
-    return 0;
 }
 
 void on_closed(nl_connection_t *c)
@@ -230,8 +219,7 @@ int main(int argc, char *argv[])
         utils_partner("tunnel.pid", argv);
     }
 
-    nl_context_t ctx;
-    rc = nl_select_init(&ctx);
+    rc = nl_event_init();
     if (rc < 0) {
     }
 
@@ -251,7 +239,7 @@ int main(int argc, char *argv[])
 
     nl_connection_t *c;
 
-    c = nl_connection(&ctx);
+    c = nl_connection();
     if (c == NULL) {
         return -1;
     }
@@ -269,7 +257,7 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    nl_select_loop(&ctx);
+    nl_process_loop();
 
     return 0;
 }
