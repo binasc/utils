@@ -33,6 +33,8 @@ def redirectMydrivers(url, html):
         links = postpage[0].xpath('.//a[@href][last()]')
         if len(links) > 0:
             href = catenateUrl(url, links[0].attrib["href"])
+            if href.rfind('#') != -1:
+                href = href[0: href.rfind('#')]
             return href
     return None
 
