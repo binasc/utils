@@ -1,4 +1,4 @@
-C_FLAGS= -Wall -Wpointer-arith -O0 -pipe -g -D_REENTRANT -D_GUN_SOURCE -D_NET_LOG
+C_FLAGS= -Wall -Wpointer-arith -O0 -g
 CXX = g++
 AR = ar
 COMMON_LIB_PATH=/opt/common/
