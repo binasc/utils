@@ -44,23 +44,24 @@ void utils_delete_configure(configure_t *c)
     delete (utils::Configure *)c;
 }
 
-int uitls_configure_load(configure_t *c, const char *file)
+int utils_configure_load(configure_t *c, const char *file)
 {
     return ((utils::Configure *)c)->load(file);
 }
 
-int utils_configure_get_single_str(configure_t *c, const char *section, const char *key, char *val, size_t len)
+int utils_configure_get_single_str(configure_t *c, const char *section, const char *key, char *val, size_t *len)
 {
     int rc;
     string v;
     rc = ((utils::Configure *)c)->get_single(section, key, v);
     if (rc == 0) {
-        if (len < v.size()) {
+        if (*len < v.size() + 1) {
             rc = -1;
         }
         else {
             strcpy(val, v.c_str());
         }
+        *len = v.size() + 1;
     }
     return rc;
 }

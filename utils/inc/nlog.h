@@ -1,6 +1,10 @@
 #ifndef __NLOG_H__
 #define __NLOG_H__
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define L_FATAL 0       ///< 致命错误，程序不得不停止
 #define L_ERROR 1       ///< 故障，如网络连接错误
 #define L_WARN  2       ///< 警告，不影响业务的故障
@@ -21,6 +25,9 @@ int utils_nlog_log(int level, const char *fmt, ...);
 #define LOG_DEBUG(fmt, ...) utils_nlog_log(L_DEBUG, fmt, ##__VA_ARGS__)
 #define LOG_TRACE(fmt, ...) utils_nlog_log(L_TRACE, fmt, ##__VA_ARGS__)
 
+#ifdef __cplusplus
+}
+#endif
 
 #endif
 

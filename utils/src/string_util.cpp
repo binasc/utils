@@ -88,12 +88,12 @@ void StringUtil::ltrim(char *str, const char *skip)
 string StringUtil::rtrim(string str, string skip)
 {
 	string::size_type pos;
-	for (pos = str.length() - 1; pos >= 0; pos--)
+	for (pos = str.length(); pos > 0; pos--)
 	{
-		if (string::npos == skip.find(str[pos]))
+		if (string::npos == skip.find(str[pos - 1]))
 			break;
 	}
-	return str.substr(0, pos + 1);
+	return str.substr(0, pos);
 }
 
 void StringUtil::rtrim(char *str, const char *skip)

@@ -1,4 +1,3 @@
-
 #ifndef NLOG_H_
 #define NLOG_H_
 
