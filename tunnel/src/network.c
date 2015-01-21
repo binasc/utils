@@ -233,11 +233,12 @@ static void read_handler(nl_event_t *ev)
         }
         else {
             rc = packet_handler(sock->data, s_recv_buff, rc);
-            if (!sock->rev.active || rc < 0) {
-                if (rc < 0) {
-                    c->error = 1;
-                }
+            if (rc < 0) {
+                c->error = 1;
                 break;
+            }
+            else if (!sock->rev.active) {
+                return;
             }
         }
     }
@@ -392,21 +393,6 @@ int nl_connection_send(nl_connection_t *c, nl_buf_t *buf)
     list_push_back(c->tosend, &tosend);
 
     return 0;
-}
-
-size_t nl_connection_tosend_size(nl_connection_t *c)
-{
-    size_t s;
-    struct list_iterator_t it;
-
-    s = 0;
-    for (it = list_begin(c->tosend);
-         !list_iterator_equal(it, list_end(c->tosend));
-         it = list_iterator_next(it)) {
-        s += ((nl_buf_t *)list_iterator_item(it))->len;
-    }
-
-    return s;
 }
 
 int nl_connection_close(nl_connection_t *c)

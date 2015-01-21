@@ -171,9 +171,12 @@ void on_received(nl_connection_t *c, nl_buf_t *buf)
 
 #define SEND_BUFF_SIZE 16384
     nl_connection_send(data->peer->c, buf);
+    data->peer->nsend += buf->len;
 
-    if (nl_connection_tosend_size(data->peer->c) > SEND_BUFF_SIZE) {
+    if (!data->paused && data->peer->nsend > SEND_BUFF_SIZE) {
+        data->paused = 1;
         nl_connection_pause_receiving(c);
+        log_debug("pause @ size: %zu", data->peer->nsend);
     }
 }
 
@@ -182,9 +185,12 @@ void on_sent(nl_connection_t *c, nl_buf_t *buf)
     socket_data_t *data;
 
     data = c->data;
-    if (nl_connection_tosend_size(c) <= SEND_BUFF_SIZE) {
-        if (data->peer) {
+    data->nsend -= buf->len;
+    if (data->nsend <= SEND_BUFF_SIZE) {
+        if (data->peer && data->peer->paused) {
+            data->peer->paused = 0;
             nl_connection_resume_receiving(data->peer->c);
+            log_debug("resume @ size: %zu", data->nsend);
         }
     }
 }

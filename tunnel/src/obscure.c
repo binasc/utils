@@ -4,6 +4,7 @@
 #include <string.h>
 #include "obscure.h"
 #include "tunnel.h"
+#include "log.h"
 
 static char *enlarge_buffer(obscure_t *o, size_t size)
 {
@@ -162,7 +163,7 @@ char *http_enc(obscure_t *o, const char *http, size_t http_len,
         memcpy(nbuf, s_bh, BM_HEADER_SIZE);
         nbuf += BM_HEADER_SIZE;
 
-        printf("encode new header: %zu\n", nbuf - begin);
+        log_debug("encode new header: %zu", nbuf - begin);
 
         bh->size = BM_HEADER_SIZE + content_len;
         bh->height = content_len / 12;
@@ -216,7 +217,7 @@ int http_dec(obscure_t *o, const nl_buf_t *in, nl_buf_t *out)
 
     header_len = i + j;
     if (in->len >= header_len + BM_HEADER_SIZE) {
-        printf("decode new header: %zu\n", header_len + BM_HEADER_SIZE);
+        log_debug("decode new header: %zu", header_len + BM_HEADER_SIZE);
         bh = (bmp_header_t *)(in->buf + header_len);
         o->to_recv_size = bh->image_size;
         out->buf = NULL;

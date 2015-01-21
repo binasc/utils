@@ -45,7 +45,6 @@ nl_connection_t *nl_connection();
 int nl_connection_listen(nl_connection_t *c, struct sockaddr_in *addr, int backlog);
 int nl_connection_connect(nl_connection_t *c, struct sockaddr_in *addr);
 int nl_connection_send(nl_connection_t *c, nl_buf_t *buf);
-size_t nl_connection_tosend_size(nl_connection_t *c);
 int nl_connection_close(nl_connection_t *c);
 
 void nl_connection_pause_receiving(nl_connection_t *c);
