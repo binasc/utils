@@ -19,7 +19,7 @@ all:
 	@$(MAKE) $(TARGET)
 
 $(TARGET): $(OBJS)
-	$(CC) -o $@ $(CFLAGS) $(LDLIBS) $^
+	$(CC) -o $@ $(CFLAGS) $^ $(LDLIBS)
 
 $(OBJ_DIR)%.o: $(SRC_DIR)%.c
 	$(CC) -o $@ -c $(CFLAGS) $<
