@@ -102,6 +102,7 @@ void on_accepted(nl_connection_t *c, nl_connection_t *nc)
     socket_data_t       *svr_data, *cli_data;
     nl_connection_t     *cc;
 
+    /* accept side */
     svr_data =  socket_data_create();
     if (svr_data == NULL) {
     }
@@ -117,6 +118,8 @@ void on_accepted(nl_connection_t *c, nl_connection_t *nc)
     nc->data = svr_data;
 
     nl_event_add(&nc->sock.rev);
+
+    /* connect side */
     cc = nl_connection();
     if (cc == NULL) {
     }

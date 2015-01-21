@@ -126,6 +126,7 @@ static void connect_handler(nl_event_t *ev)
         nl_event_add(&sock->rev);
     }
 
+    sock->rev.handler = read_handler;
     sock->wev.handler = write_handler;
     if (list_empty(c->tosend)) {
         nl_event_del(&sock->wev);
@@ -364,7 +365,7 @@ int nl_connection_listen(nl_connection_t *c, struct sockaddr_in *addr, int backl
 
 int nl_connection_connect(nl_connection_t *c, struct sockaddr_in *addr)
 {
-    c->sock.rev.handler = read_handler;
+    c->sock.rev.handler = NULL;
     c->sock.wev.handler = connect_handler;
     return nl_connect(&c->sock, addr);
 }
@@ -383,9 +384,11 @@ int nl_connection_send(nl_connection_t *c, nl_buf_t *buf)
     }
     memcpy(tosend.buf, buf->buf, buf->len);
     tosend.len = buf->len;
-    if (list_empty(c->tosend)) {
+
+    if (c->sock.connected && list_empty(c->tosend)) {
         nl_event_add(&c->sock.wev);
     }
+
     list_push_back(c->tosend, &tosend);
 
     return 0;
