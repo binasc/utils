@@ -12,44 +12,40 @@
 #include "tunnel.h"
 #include "log.h"
 
-// TODO: congestion control
-
 static int s_acc_obs = 0;
 static int s_con_obs = 0;
 
 static int s_daemon;
 static int s_partner;
 
-static char s_host[256];
+static char s_lhost[256];
+static char s_rhost[256];
 static uint16_t s_rport;
 static uint16_t s_lport;
 
 int options(int argc, char ** argv)
 {
-    int iOpt = 0;
-    int iQurVer = 0;
+    int opt;
+    int version = 0;
 
-    while ((iOpt = getopt(argc, argv, "dPh:p:l:vAC")) != EOF)
+    while ((opt = getopt(argc, argv, "dpl:r:vAC")) != EOF)
     {
-        switch (iOpt)
+        switch (opt)
         {
             case 'd':
                 s_daemon = 1;
                 break;
-            case 'P':
+            case 'p':
                 s_partner = 1;
                 break;
-            case 'h':
-                strcpy(s_host, optarg);
-                break;
-            case 'p':
-                s_rport = atoi(optarg);
-                break;
             case 'l':
-                s_lport = atoi(optarg);
+                strcpy(s_lhost, optarg);
+                break;
+            case 'r':
+                strcpy(s_rhost, optarg);
                 break;
             case 'v' :
-                iQurVer = 1;
+                version = 1;
                 break;
             case 'A':
                 s_acc_obs = 1;
@@ -58,14 +54,14 @@ int options(int argc, char ** argv)
                 s_con_obs = 1;
                 break;
             default :
-                log_error("invalid option -- '%c'", iOpt);
+                log_error("invalid option -- '%c'", opt);
                 return -1;
         }
     }
 
-    if (iQurVer)
+    if (version)
     {
-        printf("nlog server build in %s %s\n", __DATE__, __TIME__);
+        printf("tunnel build in %s %s\n", __DATE__, __TIME__);
         return -1;
     }
 
@@ -214,6 +210,8 @@ void on_closed(nl_connection_t *c)
 int main(int argc, char *argv[])
 {
     int rc;
+    char *colon;
+    struct sockaddr_in local_addr;
 
     rc = options(argc, argv);
     if (rc == -1) {
@@ -228,8 +226,28 @@ int main(int argc, char *argv[])
         utils_partner("tunnel.pid", argv);
     }
 
+    if ((colon = strchr(s_lhost, ':')) == NULL) {
+        fprintf(stderr, "invalid argument: %s\n", s_lhost);
+        return -1;
+    }
+    *colon = 0;
+    if ((s_lport = atoi(colon + 1)) == 0) {
+        fprintf(stderr, "invalid argument: %s\n", s_lhost);
+        return -1;
+    }
+    if ((colon = strchr(s_rhost, ':')) == NULL) {
+        fprintf(stderr, "invalid argument: %s\n", s_rhost);
+        return -1;
+    }
+    *colon = 0;
+    if ((s_rport = atoi(colon + 1)) == 0) {
+        fprintf(stderr, "invalid argument: %s\n", s_rhost);
+        return -1;
+    }
+
     rc = nl_event_init();
     if (rc < 0) {
+        return -1;
     }
 
     accept_data_t *data;
@@ -238,11 +256,19 @@ int main(int argc, char *argv[])
         return -1;
     }
 
+    memset(&local_addr, 0, sizeof(local_addr));
+    local_addr.sin_family = AF_INET;
+    local_addr.sin_port = htons(s_lport);
+    rc = nl_queryname(s_lhost, &local_addr.sin_addr);
+    if (rc < 0) {
+        return -1;
+    }
+
     memset(&data->remote_addr, 0, sizeof(struct sockaddr_in));
     data->remote_addr.sin_family = AF_INET;
     data->remote_addr.sin_port = htons(s_rport);
-    rc = nl_queryname(s_host, &data->remote_addr.sin_addr);
-    if (rc == -1) {
+    rc = nl_queryname(s_rhost, &data->remote_addr.sin_addr);
+    if (rc < 0) {
         return -1;
     }
 
@@ -255,13 +281,7 @@ int main(int argc, char *argv[])
     c->cbs.on_accepted = on_accepted;
     c->data = data;
 
-    struct sockaddr_in local;
-    memset(&local, sizeof(local), 0);
-    local.sin_family = AF_INET;
-    local.sin_addr.s_addr = inet_addr("0.0.0.0");
-    local.sin_port = htons(s_lport);
-
-    rc = nl_connection_listen(c, &local, 1);
+    rc = nl_connection_listen(c, &local_addr, 1);
     if (rc < 0) {
         return -1;
     }
