@@ -191,13 +191,12 @@ static int nl_post_connect(nl_socket_t *sock)
 
 static void nl_connect_wrapper(nl_event_t *ev)
 {
-    int             rc;
     nl_socket_t    *sock;
 
     log_trace("nl_connect_wrapper");
     sock = ev->data;
 
-    rc = nl_post_connect(sock);
+    (void) nl_post_connect(sock);
     ev->handler = sock->chandler;
 
     ev->handler(ev);
