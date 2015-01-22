@@ -327,7 +327,6 @@ static void write_handler(nl_event_t *ev)
     }
 
     if (list_empty(c->tosend)) {
-        nl_event_del(&c->sock.wev);
         if (c->closing_ev.timer_set) {
             nl_event_del_timer(&c->closing_ev);
             nl_connection_close(c);
@@ -404,18 +403,13 @@ int nl_connection_close(nl_connection_t *c)
     }
 
     timeout = 0;
-    if (c->error) {
-        timeout = 0;
-    }
-    else if (!list_empty(c->tosend) /* && linger */) {
+    if (!c->error && c->sock.connected && !list_empty(c->tosend) /* && linger */) {
         timeout = 20000;
-    }
-
-    if (timeout == 0) {
-        log_debug("#%d: closing in next loop", c->sock.fd);
+        log_debug("#%d: closing in %d ms", c->sock.fd, timeout);
     }
     else {
-        log_debug("#%d: closing in %d ms", c->sock.fd, timeout);
+        nl_event_del(&c->sock.wev);
+        log_debug("#%d: closing in next loop", c->sock.fd);
     }
 
     nl_event_del(&c->sock.rev);
