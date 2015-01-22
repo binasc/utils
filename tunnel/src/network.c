@@ -327,6 +327,7 @@ static void write_handler(nl_event_t *ev)
     }
 
     if (list_empty(c->tosend)) {
+        nl_event_del(&c->sock.wev);
         if (c->closing_ev.timer_set) {
             nl_event_del_timer(&c->closing_ev);
             nl_connection_close(c);
