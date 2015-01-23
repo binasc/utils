@@ -518,7 +518,7 @@ static void udp_write_handler(nl_event_t *ev)
     nl_socket_t         *sock;
     nl_datagram_t       *d;
     nl_packet_t         *p;
-    nl_buf_t            *buf, snd;
+    nl_buf_t            *buf;
     int                 rc;
 
     sock = ev->data;
@@ -528,8 +528,6 @@ static void udp_write_handler(nl_event_t *ev)
         p = (nl_packet_t *)list_front(d->tosend);
         buf = &p->buf;
         rc = nl_sendto(sock, buf->buf, buf->len, &p->addr);
-        snd.buf = buf->buf;
-        snd.len = rc;
         if (rc == (int)buf->len) {
             if (d->on_sent) {
                 d->on_sent(d, p);
