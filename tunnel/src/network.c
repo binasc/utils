@@ -407,14 +407,12 @@ int nl_connection_close(nl_connection_t *c)
     }
 
     timeout = 0;
-    if (c->error) {
-        timeout = 0;
-    }
-    else if (!list_empty(c->tosend) /* && linger */) {
+    if (!c->error && c->sock.connected && !list_empty(c->tosend) /* && linger */) {
         timeout = 20000;
     }
 
     if (timeout == 0) {
+        nl_event_del(&c->sock.wev);
         log_debug("#%d closing in next loop", c->sock.fd);
     }
     else {
