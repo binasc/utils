@@ -1,3 +1,4 @@
+#include <time.h>
 #include <stdio.h>
 #include <errno.h>
 #include <stdlib.h>
@@ -23,12 +24,14 @@ static char s_rhost[256];
 static uint16_t s_rport;
 static uint16_t s_lport;
 
+static int s_udp;
+
 int options(int argc, char ** argv)
 {
     int opt;
     int version = 0;
 
-    while ((opt = getopt(argc, argv, "dpl:r:vAC")) != EOF)
+    while ((opt = getopt(argc, argv, "dpl:r:vACu")) != EOF)
     {
         switch (opt)
         {
@@ -52,6 +55,9 @@ int options(int argc, char ** argv)
                 break;
             case 'C':
                 s_con_obs = 1;
+                break;
+            case 'u':
+                s_udp = 1;
                 break;
             default :
                 log_error("invalid option -- '%c'", opt);
@@ -94,7 +100,6 @@ void on_closed(nl_connection_t *c);
 void on_accepted(nl_connection_t *c, nl_connection_t *nc)
 {
     int                 rc;
-    accept_data_t       *acc_data;
     socket_data_t       *svr_data, *cli_data;
     nl_connection_t     *cc;
 
@@ -137,8 +142,7 @@ void on_accepted(nl_connection_t *c, nl_connection_t *nc)
     svr_data->peer = cli_data;
     cli_data->peer = svr_data;
 
-    acc_data = c->data;
-    rc = nl_connection_connect(cc, &acc_data->remote_addr);
+    rc = nl_connection_connect(cc, (struct sockaddr_in *)c->data);
     if (rc < 0) {
     }
 }
@@ -207,11 +211,100 @@ void on_closed(nl_connection_t *c)
     free(data);
 }
 
+static datagram_data_t *udp_addr2data;
+
+static datagram_data_t *find_datagram(struct sockaddr_in *addr)
+{
+    datagram_data_t *d;
+
+    for (d = udp_addr2data; d != NULL; d = d->next) {
+        if (d->peer.sin_addr.s_addr == addr->sin_addr.s_addr &&
+            d->peer.sin_port == addr->sin_port) {
+            return d;
+        }
+    }
+
+    return NULL;
+}
+
+static void push_datagram(datagram_data_t *d)
+{
+    d->next = udp_addr2data;
+    udp_addr2data = d;
+}
+
+void on_udp_received(nl_datagram_t *d, nl_packet_t *p)
+{
+    datagram_data_t *data;
+
+    data = d->data;
+
+    memcpy(&p->addr, &data->peer, sizeof(data->peer));
+
+    if (s_con_obs) {
+        p->buf.buf = udp_con_decode(&data->con_o, p->buf.buf, &p->buf.len);
+    }
+    else if (s_acc_obs) {
+        p->buf.buf = udp_acc_encode(&data->con_o, p->buf.buf, &p->buf.len);
+    }
+
+    nl_datagram_send(data->acceptor, p);
+}
+
+void on_udp_sent(nl_datagram_t *d, nl_packet_t *p)
+{
+}
+
+void on_udp_accepted(nl_datagram_t *d, nl_packet_t *p)
+{
+    int rc;
+    datagram_data_t *association;
+
+    association = find_datagram(&p->addr);
+    if (association == NULL) {
+        association = malloc(sizeof(datagram_data_t));
+        if (association == NULL) {
+            log_error("malloc() failed");
+            return;
+        }
+        udp_obscure(&association->acc_o);
+        udp_obscure(&association->con_o);
+
+        memcpy(&association->peer, &p->addr, sizeof(p->addr));
+        rc = nl_datagram(&association->d);
+        if (rc < 0) {
+            free(association);
+        }
+
+        association->d.on_received = on_udp_received;
+        association->d.on_sent = on_udp_sent;
+        association->d.data = association;
+        association->acceptor = d;
+
+        nl_event_add(&association->d.sock.rev);
+        //nl_event_add(&association->d.sock.wev);
+        push_datagram(association);
+    }
+
+    memcpy(&p->addr, d->data, sizeof(p->addr));
+
+    if (s_con_obs) {
+        p->buf.buf = udp_con_encode(&association->acc_o, p->buf.buf, &p->buf.len);
+    }
+    else if (s_acc_obs) {
+        p->buf.buf = udp_acc_decode(&association->acc_o, p->buf.buf, &p->buf.len);
+    }
+
+    nl_datagram_send(&association->d, p);
+}
+
 int main(int argc, char *argv[])
 {
     int rc;
     char *colon;
-    struct sockaddr_in local_addr;
+    struct sockaddr_in local_addr, remote_addr;
+
+    srand(time(NULL));
 
     rc = options(argc, argv);
     if (rc == -1) {
@@ -250,12 +343,6 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    accept_data_t *data;
-    data = malloc(sizeof(accept_data_t));
-    if (data == NULL) {
-        return -1;
-    }
-
     memset(&local_addr, 0, sizeof(local_addr));
     local_addr.sin_family = AF_INET;
     local_addr.sin_port = htons(s_lport);
@@ -264,26 +351,48 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    memset(&data->remote_addr, 0, sizeof(struct sockaddr_in));
-    data->remote_addr.sin_family = AF_INET;
-    data->remote_addr.sin_port = htons(s_rport);
-    rc = nl_queryname(s_rhost, &data->remote_addr.sin_addr);
+    memset(&remote_addr, 0, sizeof(struct sockaddr_in));
+    remote_addr.sin_family = AF_INET;
+    remote_addr.sin_port = htons(s_rport);
+    rc = nl_queryname(s_rhost, &remote_addr.sin_addr);
     if (rc < 0) {
         return -1;
     }
 
-    nl_connection_t *c;
+    if (s_udp) {
+        nl_datagram_t d;
 
-    c = nl_connection();
-    if (c == NULL) {
-        return -1;
+        rc = nl_datagram(&d);
+        if (rc < 0) {
+            return -1;
+        }
+
+        rc = nl_datagram_bind(&d, &local_addr);
+        if (rc < 0) {
+            return -1;
+        }
+
+        d.on_received = on_udp_accepted;
+        d.on_sent = on_udp_sent;
+        d.data = &remote_addr;
+
+        nl_event_add(&d.sock.rev);
+        nl_event_add(&d.sock.wev);
     }
-    c->cbs.on_accepted = on_accepted;
-    c->data = data;
+    else {
+        nl_connection_t *c;
 
-    rc = nl_connection_listen(c, &local_addr, 1);
-    if (rc < 0) {
-        return -1;
+        c = nl_connection();
+        if (c == NULL) {
+            return -1;
+        }
+        c->cbs.on_accepted = on_accepted;
+        c->data = &remote_addr;
+
+        rc = nl_connection_listen(c, &local_addr, 1);
+        if (rc < 0) {
+            return -1;
+        }
     }
 
     nl_process_loop();

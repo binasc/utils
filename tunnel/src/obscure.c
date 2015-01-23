@@ -266,3 +266,78 @@ void *con_decode(obscure_t *o, void *buf, size_t *len)
     return buf;
 }
 
+void udp_obscure(udp_obscure_t *o)
+{
+    memset(o, 0, sizeof(udp_obscure_t));
+}
+
+char *udp_xor(udp_obscure_t *o, char *buf, size_t *len)
+{
+    size_t i;
+    for (i = 0; i < *len; i++) {
+        buf[i] = ~buf[i];
+        buf[i] ^= s_key[(o->last_key++) % 4];
+    }
+    o->last_key %= 4;
+
+    return buf;
+}
+
+#define udp_safe_mtu (576 - 20 - 8)
+
+char *udp_padding(udp_obscure_t *o, char *buf, size_t *len)
+{
+    unsigned char padding;
+
+    padding = 1;
+    if (*len < udp_safe_mtu) {
+        padding = rand() % (udp_safe_mtu - *len) + 1;
+    }
+
+    memmove(buf + padding, buf, *len);
+    *(unsigned char *)buf = padding;
+    *len += padding;
+
+    return buf;
+}
+
+char *udp_unpadding(udp_obscure_t *o, char *buf, size_t *len)
+{
+    unsigned char padding;
+
+    padding = *(unsigned char *)buf;
+
+    memmove(buf, buf + padding, *len - padding);
+    *len -= padding;
+
+    return buf;
+}
+
+void *udp_acc_encode(udp_obscure_t *o, void *buf, size_t *len)
+{
+    buf = udp_padding(o, buf, len);
+    buf = udp_xor(o, buf, len);
+    return buf;
+}
+
+void *udp_con_encode(udp_obscure_t *o, void *buf, size_t *len)
+{
+    buf = udp_padding(o, buf, len);
+    buf = udp_xor(o, buf, len);
+    return buf;
+}
+
+void *udp_acc_decode(udp_obscure_t *o, void *buf, size_t *len)
+{
+    buf = udp_xor(o, buf, len);
+    buf = udp_unpadding(o, buf, len);
+    return buf;
+}
+
+void *udp_con_decode(udp_obscure_t *o, void *buf, size_t *len)
+{
+    buf = udp_xor(o, buf, len);
+    buf = udp_unpadding(o, buf, len);
+    return buf;
+}
+

@@ -23,5 +23,17 @@ void *con_encode(obscure_t *o, void *buf, size_t *len);
 void *acc_decode(obscure_t *o, void *buf, size_t *len);
 void *con_decode(obscure_t *o, void *buf, size_t *len);
 
+typedef struct udp_obscure_s
+{
+    int         last_key;
+} udp_obscure_t;
+
+void udp_obscure(udp_obscure_t *o);
+
+void *udp_acc_encode(udp_obscure_t *o, void *buf, size_t *len);
+void *udp_con_encode(udp_obscure_t *o, void *buf, size_t *len);
+void *udp_acc_decode(udp_obscure_t *o, void *buf, size_t *len);
+void *udp_con_decode(udp_obscure_t *o, void *buf, size_t *len);
+
 #endif
 

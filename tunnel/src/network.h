@@ -52,5 +52,30 @@ void nl_connection_resume_receiving(nl_connection_t *c);
 void nl_connection_pause_sending(nl_connection_t *c);
 void nl_connection_resume_sending(nl_connection_t *c);
 
+typedef struct nl_packet_s
+{
+    struct sockaddr_in  addr;
+    nl_buf_t            buf;
+} nl_packet_t;
+
+typedef struct nl_datagram_s
+{
+    nl_socket_t         sock;
+    void               *data;
+
+    void              (*on_received)(struct nl_datagram_s *, nl_packet_t *);
+    void              (*on_sent)(struct nl_datagram_s *, nl_packet_t *);
+
+    struct list_t      *tosend;
+
+    unsigned            error :1;
+    nl_event_t          closing_ev;
+} nl_datagram_t;
+
+int nl_datagram(nl_datagram_t *d);
+int nl_datagram_bind(nl_datagram_t *d, struct sockaddr_in *addr);
+int nl_datagram_send(nl_datagram_t *d, nl_packet_t *p);
+int nl_datagram_close(nl_datagram_t *d);
+
 #endif
 

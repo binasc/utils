@@ -74,7 +74,7 @@ static void accept_handler(nl_event_t *ev)
     int                 rc;
 
     sock = ev->data;
-    log_trace("#%d: accept_handler", sock->fd);
+    log_trace("#%d accept_handler", sock->fd);
     c = sock->data;
 
     c->error = 0;
@@ -110,7 +110,7 @@ static void connect_handler(nl_event_t *ev)
     nl_connection_t *c;
 
     sock = ev->data;
-    log_trace("#%d: connect_handler", sock->fd);
+    log_trace("#%d connect_handler", sock->fd);
     c = sock->data;
 
     if (!sock->connected || sock->error) {
@@ -215,7 +215,7 @@ static void read_handler(nl_event_t *ev)
     nl_connection_t *c;
 
     sock = ev->data;
-    log_trace("#%d: read_handler", sock->fd);
+    log_trace("#%d read_handler", sock->fd);
     c = sock->data;
     c->error = 0;
 
@@ -265,7 +265,7 @@ static void nl_connection_destroy(nl_connection_t *c)
         c->remain_size = 0;
     }
 
-    log_debug("#%d: destroyed", c->sock.fd);
+    log_debug("#%d destroyed", c->sock.fd);
 
     nl_close(&c->sock);
 
@@ -290,7 +290,7 @@ static void write_handler(nl_event_t *ev)
     int                 rc;
 
     sock = ev->data;
-    log_trace("#%d: write_handler", sock->fd);
+    log_trace("#%d write_handler", sock->fd);
     c = sock->data;
     while (!list_empty(c->tosend)) {
         buf = (nl_buf_t *)list_front(c->tosend);
@@ -345,7 +345,7 @@ nl_connection_t *nl_connection()
         return NULL;
     }
 
-    rc = nl_socket(&c->sock);
+    rc = nl_socket(&c->sock, NL_TCP);
     if (rc == -1) {
         c->error = 1;
         nl_connection_close(c);
@@ -361,7 +361,10 @@ int nl_connection_listen(nl_connection_t *c, struct sockaddr_in *addr, int backl
 {
     c->sock.rev.handler = accept_handler;
     c->sock.wev.handler = NULL;
-    return nl_listen(&c->sock, addr, backlog);
+    if (nl_bind(&c->sock, addr) < 0) {
+        return -1;
+    }
+    return nl_listen(&c->sock, backlog);
 }
 
 int nl_connection_connect(nl_connection_t *c, struct sockaddr_in *addr)
@@ -412,10 +415,10 @@ int nl_connection_close(nl_connection_t *c)
     }
 
     if (timeout == 0) {
-        log_debug("#%d: closing in next loop", c->sock.fd);
+        log_debug("#%d closing in next loop", c->sock.fd);
     }
     else {
-        log_debug("#%d: closing in %d ms", c->sock.fd, timeout);
+        log_debug("#%d closing in %d ms", c->sock.fd, timeout);
     }
 
     nl_event_del(&c->sock.rev);
@@ -445,5 +448,192 @@ void nl_connection_pause_sending(nl_connection_t *c)
 void nl_connection_resume_sending(nl_connection_t *c)
 {
     nl_event_add(&c->sock.wev);
+}
+
+static void nl_datagram_destroy(nl_datagram_t *c)
+{
+    struct list_iterator_t  it;
+    nl_packet_t             *p;
+
+    for (it = list_begin(c->tosend);
+         !list_iterator_equal(list_end(c->tosend), it);
+         it = list_iterator_next(it)) {
+        p = list_iterator_item(it);
+        free(p->buf.buf);
+    }
+    list_destroy(c->tosend);
+
+    log_debug("#%d destroyed", c->sock.fd);
+
+    nl_close(&c->sock);
+}
+
+static void udp_linger_handler(nl_event_t *ev)
+{
+    log_trace("udp_linger_handler");
+    nl_datagram_destroy((nl_datagram_t *)ev->data);
+}
+
+static void udp_read_handler(nl_event_t *ev)
+{
+// TODO: multi-threads
+#define RECV_BUFF_SIZE 16384
+    static char s_recv_buff[RECV_BUFF_SIZE];
+
+    int             rc;
+    nl_socket_t    *sock;
+    nl_datagram_t  *d;
+    nl_packet_t     p;
+
+    sock = ev->data;
+    log_trace("#%d udp_read_handler", sock->fd);
+    d = sock->data;
+    d->error = 0;
+
+    for ( ; ; ) {
+        rc = nl_recvfrom(sock, s_recv_buff, RECV_BUFF_SIZE, &p.addr);
+        if (rc <= 0) {
+            if (rc == -1 && !sock->error) {
+                /* EAGAIN || EWOULDBLOCK */
+                return;
+            }
+            else if (rc != 0) {
+                d->error = 1;
+            }
+            break;
+        }
+        else {
+            p.buf.buf = s_recv_buff;
+            p.buf.len = rc;
+            d->on_received(d, &p);
+            if (!sock->rev.active) {
+                return;
+            }
+        }
+    }
+
+    nl_datagram_close(d);
+}
+
+static void udp_write_handler(nl_event_t *ev)
+{
+    nl_socket_t         *sock;
+    nl_datagram_t       *d;
+    nl_packet_t         *p;
+    nl_buf_t            *buf, snd;
+    int                 rc;
+
+    sock = ev->data;
+    log_trace("#%d udpwrite_handler", sock->fd);
+    d = sock->data;
+    while (!list_empty(d->tosend)) {
+        p = (nl_packet_t *)list_front(d->tosend);
+        buf = &p->buf;
+        rc = nl_sendto(sock, buf->buf, buf->len, &p->addr);
+        snd.buf = buf->buf;
+        snd.len = rc;
+        if (rc == (int)buf->len) {
+            if (d->on_sent) {
+                d->on_sent(d, p);
+            }
+            free(buf->buf);
+            list_pop_front(d->tosend);
+        }
+        else if (rc > 0 && rc < buf->len) {
+            log_fatal("?????????????????????");
+            if (d->on_sent) {
+                d->on_sent(d, p);
+            }
+            memmove(buf->buf, buf->buf + rc, buf->len - rc);
+            buf->len -= rc;
+        }
+        else {
+            if (rc == -1 && !sock->error) {
+                //nl_event_add(&sock->wev);
+            }
+            else {
+                d->error = 1;
+                if (d->closing_ev.timer_set) {
+                    nl_event_del_timer(&d->closing_ev);
+                }
+                nl_datagram_close(d);
+                return;
+            }
+        }
+    }
+
+    if (list_empty(d->tosend)) {
+        nl_event_del(&d->sock.wev);
+        if (d->closing_ev.timer_set) {
+            nl_event_del_timer(&d->closing_ev);
+            nl_datagram_close(d);
+        }
+    }
+}
+
+int nl_datagram(nl_datagram_t *d)
+{
+    int rc;
+
+    memset(d, 0, sizeof(nl_datagram_t));
+
+    d->tosend = list_create(sizeof(nl_packet_t), NULL, NULL);
+    if (d->tosend == NULL) {
+        return -1;
+    }
+
+    rc = nl_socket(&d->sock, NL_UDP);
+    if (rc == -1) {
+        d->error = 1;
+        nl_datagram_close(d);
+        return -1;
+    }
+
+    d->sock.data = d;
+    d->sock.rev.handler = udp_read_handler;
+    d->sock.wev.handler = udp_write_handler;
+
+    return 0;
+}
+
+int nl_datagram_bind(nl_datagram_t *d, struct sockaddr_in *addr)
+{
+    return nl_bind(&d->sock, addr);
+}
+
+int nl_datagram_send(nl_datagram_t *d, nl_packet_t *p)
+{
+    nl_packet_t tosend;
+
+    if (d->closing_ev.timer_set) {
+        return -1;
+    }
+
+    tosend.buf.buf = malloc(p->buf.len);
+    if (tosend.buf.buf == NULL) {
+        return -1;
+    }
+    memcpy(&tosend.addr, &p->addr, sizeof(tosend.addr));
+    memcpy(tosend.buf.buf, p->buf.buf, p->buf.len);
+    tosend.buf.len = p->buf.len;
+
+    if (list_empty(d->tosend)) {
+        nl_event_add(&d->sock.wev);
+    }
+
+    list_push_back(d->tosend, &tosend);
+
+    return 0;
+}
+
+int nl_datagram_close(nl_datagram_t *d)
+{
+    nl_event_del(&d->sock.wev);
+    nl_event_del(&d->sock.rev);
+    d->closing_ev.handler = udp_linger_handler;
+    d->closing_ev.data = d;
+    nl_event_add_timer(&d->closing_ev, 0);
+
+    return 0;
 }
 
