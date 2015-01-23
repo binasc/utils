@@ -276,9 +276,8 @@ char *udp_xor(udp_obscure_t *o, char *buf, size_t *len)
     size_t i;
     for (i = 0; i < *len; i++) {
         buf[i] = ~buf[i];
-        buf[i] ^= s_key[(o->last_key++) % 4];
+        buf[i] ^= s_key[i % 4];
     }
-    o->last_key %= 4;
 
     return buf;
 }
