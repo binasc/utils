@@ -22,6 +22,7 @@ typedef struct datagram_data_s
     struct datagram_data_s  *next;
     udp_obscure_t           acc_o;
     udp_obscure_t           con_o;
+    nl_event_t              timeout;
 } datagram_data_t;
 
 #endif

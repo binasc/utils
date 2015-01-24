@@ -233,7 +233,41 @@ static void push_datagram(datagram_data_t *d)
     udp_addr2data = d;
 }
 
-void on_udp_received(nl_datagram_t *d, nl_packet_t *p)
+static void erase_datagram(struct sockaddr_in *addr)
+{
+    datagram_data_t **last, *d;
+
+    last = &udp_addr2data;
+    for (d = udp_addr2data; d != NULL; d = d->next) {
+        if (d->peer.sin_addr.s_addr == addr->sin_addr.s_addr &&
+            d->peer.sin_port == addr->sin_port) {
+            *last = d->next;
+            return;
+        }
+
+        last = &d->next;
+    }
+
+    log_warning("#%d datagram not found", d->d.sock.fd);
+}
+
+static void on_udp_closed(nl_datagram_t *d)
+{
+    datagram_data_t *data;
+
+    data = d->data;
+
+    erase_datagram(&data->peer);
+
+    log_debug("#%d datagram destroyed", d->sock.fd);
+
+    free(data);
+}
+
+// 10 min
+#define UDP_TIMEOUT (10 * 60 * 1000)
+
+static void on_udp_received(nl_datagram_t *d, nl_packet_t *p)
 {
     datagram_data_t *data;
 
@@ -248,11 +282,27 @@ void on_udp_received(nl_datagram_t *d, nl_packet_t *p)
         p->buf.buf = udp_acc_encode(&data->con_o, p->buf.buf, &p->buf.len);
     }
 
-    nl_datagram_send(data->acceptor, p);
+    if (p->buf.buf != NULL) {
+        nl_datagram_send(data->acceptor, p);
+    }
+
+    nl_event_del_timer(&data->timeout);
+    nl_event_add_timer(&data->timeout, UDP_TIMEOUT);
 }
 
 void on_udp_sent(nl_datagram_t *d, nl_packet_t *p)
 {
+}
+
+void on_udp_timeout(nl_event_t *ev)
+{
+    datagram_data_t *d;
+
+    d = ev->data;
+
+    log_debug("#%d timeout", d->d.sock.fd);
+
+    nl_datagram_close(&d->d);
 }
 
 void on_udp_accepted(nl_datagram_t *d, nl_packet_t *p)
@@ -278,8 +328,12 @@ void on_udp_accepted(nl_datagram_t *d, nl_packet_t *p)
 
         association->d.on_received = on_udp_received;
         association->d.on_sent = on_udp_sent;
+        association->d.on_closed = on_udp_closed;
         association->d.data = association;
         association->acceptor = d;
+
+        association->timeout.data = association;
+        association->timeout.handler = on_udp_timeout;
 
         nl_event_add(&association->d.sock.rev);
         //nl_event_add(&association->d.sock.wev);
@@ -295,7 +349,13 @@ void on_udp_accepted(nl_datagram_t *d, nl_packet_t *p)
         p->buf.buf = udp_acc_decode(&association->acc_o, p->buf.buf, &p->buf.len);
     }
 
-    nl_datagram_send(&association->d, p);
+    // TODO: discard or send anyway?
+    if (p->buf.buf != NULL) {
+        nl_datagram_send(&association->d, p);
+    }
+
+    nl_event_del_timer(&association->timeout);
+    nl_event_add_timer(&association->timeout, UDP_TIMEOUT);
 }
 
 int main(int argc, char *argv[])

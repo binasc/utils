@@ -464,6 +464,10 @@ static void nl_datagram_destroy(nl_datagram_t *c)
     log_debug("#%d destroyed", c->sock.fd);
 
     nl_close(&c->sock);
+
+    if (c->on_closed) {
+        c->on_closed(c);
+    }
 }
 
 static void udp_linger_handler(nl_event_t *ev)

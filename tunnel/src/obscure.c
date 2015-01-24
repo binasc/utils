@@ -4,6 +4,7 @@
 #include <string.h>
 #include "obscure.h"
 #include "tunnel.h"
+#include "sha1sum.h"
 #include "log.h"
 
 static char *enlarge_buffer(obscure_t *o, size_t size)
@@ -282,32 +283,72 @@ char *udp_xor(udp_obscure_t *o, char *buf, size_t *len)
     return buf;
 }
 
-#define udp_safe_mtu (576 - 20 - 8)
+#define least_padding 64
+#define udp_safe_mtu (576 - 20 - 8 - 2 - 4)
+#define random(min, max) (rand()%((max)-(min))+(min))
+
+static void get_random_bytes(char *buf, size_t len)
+{
+    for ( ; len > 0; len--) {
+        *(unsigned char *)(buf + len - 1) = rand() % 256;
+    }
+}
 
 char *udp_padding(udp_obscure_t *o, char *buf, size_t *len)
 {
-    unsigned char padding;
+    uint16_t padding;
+    int min, max;
+    SHA1_CONTEXT ctx;
 
-    padding = 1;
+    padding = 2;
     if (*len < udp_safe_mtu) {
-        padding = rand() % (udp_safe_mtu - *len) + 1;
+        max = udp_safe_mtu - *len;
+        min = least_padding < max ? least_padding : max;
+        if (min < max) {
+            padding = random(min, max + 1);
+        }
+        else {
+            padding = min;
+        }
+        padding += 2;
     }
 
     memmove(buf + padding, buf, *len);
-    *(unsigned char *)buf = padding;
-    *len += padding;
+    *(uint16_t *)buf = padding;
+    get_random_bytes(buf + 2, padding - 2);
+
+    sha1_init(&ctx);
+    sha1_write(&ctx, (unsigned char *)buf, padding + *len);
+    sha1_final(&ctx);
+    *(uint32_t *)(buf + padding + *len) = *(uint32_t *)(ctx.buf + 16);
+
+    *len += padding + 4;
 
     return buf;
 }
 
 char *udp_unpadding(udp_obscure_t *o, char *buf, size_t *len)
 {
-    unsigned char padding;
+    SHA1_CONTEXT ctx;
+    uint16_t padding;
 
-    padding = *(unsigned char *)buf;
+    padding = *(uint16_t *)buf;
+    if (padding >= *len - 4) {
+        log_error("corrupted packet");
+        return NULL;
+    }
 
-    memmove(buf, buf + padding, *len - padding);
-    *len -= padding;
+    sha1_init(&ctx);
+    sha1_write(&ctx, (unsigned char *)buf, *len - 4);
+    sha1_final(&ctx);
+
+    if (*(uint32_t *)(buf + *len - 4) != *(uint32_t *)(ctx.buf + 16)) {
+        log_error("checksum failed");
+        return NULL;
+    }
+
+    memmove(buf, buf + padding, *len - padding - 4);
+    *len -= padding + 4;
 
     return buf;
 }

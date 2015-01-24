@@ -65,6 +65,7 @@ typedef struct nl_datagram_s
 
     void              (*on_received)(struct nl_datagram_s *, nl_packet_t *);
     void              (*on_sent)(struct nl_datagram_s *, nl_packet_t *);
+    void              (*on_closed)(struct nl_datagram_s *);
 
     struct list_t      *tosend;
 
