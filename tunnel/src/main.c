@@ -258,6 +258,9 @@ static void on_udp_closed(nl_datagram_t *d)
     data = d->data;
 
     erase_datagram(&data->peer);
+    if (data->timeout.timer_set) {
+        nl_event_del_timer(&data->timeout);
+    }
 
     log_debug("#%d datagram destroyed", d->sock.fd);
 
