@@ -317,6 +317,7 @@ void on_udp_accepted(nl_datagram_t *d, nl_packet_t *p)
             log_error("malloc() failed");
             return;
         }
+        memset(association, 0, sizeof(datagram_data_t));
         udp_obscure(&association->acc_o);
         udp_obscure(&association->con_o);
 
