@@ -252,10 +252,6 @@ int nl_recv(nl_socket_t *sock, char *buf, size_t len)
     sock->err = 0;
     rc = recv(sock->fd, buf, len, 0);
     if (rc < 0) {
-        /* we do not set error flag */
-        /* in order to distinguish  */
-        /* whether an error really  */
-        /* happened                 */
         sock->err = errno;
         if (sock->err != EAGAIN && sock->err != EWOULDBLOCK) {
             sock->error = 1;
@@ -279,10 +275,6 @@ int nl_recvfrom(nl_socket_t *sock, char *buf, size_t len, struct sockaddr_in *ad
     slen = sizeof(*addr);
     rc = recvfrom(sock->fd, buf, len, 0, (struct sockaddr *)addr, &slen);
     if (rc < 0) {
-        /* we do not set error flag */
-        /* in order to distinguish  */
-        /* whether an error really  */
-        /* happened                 */
         sock->err = errno;
         if (sock->err != EAGAIN && sock->err != EWOULDBLOCK) {
             sock->error = 1;
