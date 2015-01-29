@@ -423,6 +423,7 @@ int nl_connection_close(nl_connection_t *c)
     c->closing_ev.handler = linger_handler;
     c->closing_ev.data = c;
     nl_event_add_timer(&c->closing_ev, timeout);
+
     return 0;
 }
 
@@ -494,14 +495,12 @@ static void udp_read_handler(nl_event_t *ev)
 
     for ( ; ; ) {
         rc = nl_recvfrom(sock, s_recv_buff, RECV_BUFF_SIZE, &p.addr);
-        if (rc <= 0) {
-            if (rc == -1 && !sock->error) {
+        if (rc < 0) {
+            if (!sock->error) {
                 /* EAGAIN || EWOULDBLOCK */
                 return;
             }
-            else if (rc != 0) {
-                d->error = 1;
-            }
+            d->error = 1;
             break;
         }
         else {
@@ -628,6 +627,10 @@ int nl_datagram_send(nl_datagram_t *d, nl_packet_t *p)
 
 int nl_datagram_close(nl_datagram_t *d)
 {
+    if (d->closing_ev.timer_set) {
+        return 0;
+    }
+
     nl_event_del(&d->sock.wev);
     nl_event_del(&d->sock.rev);
     d->closing_ev.handler = udp_linger_handler;
