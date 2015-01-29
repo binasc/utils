@@ -353,10 +353,162 @@ char *udp_unpadding(udp_obscure_t *o, char *buf, size_t *len)
     return buf;
 }
 
+typedef struct dns_header_s {
+    uint16_t        id;
+    uint16_t        flags;
+    uint16_t        qdcount;
+    uint16_t        ancount;
+    uint16_t        nscount;
+    uint16_t        arcount;
+} dns_header_t;
+
+typedef struct q_header_s {
+    // qname
+    uint16_t        qtype;
+    uint16_t        qclass;
+} q_header_t;
+
+#pragma pack(1)
+typedef struct rr_header_s {
+    // name
+    uint16_t        type;
+    uint16_t        klass;
+    uint32_t        ttl;
+    uint16_t        rdlength;
+} rr_header_t;
+#pragma pack()
+
+static char qname[] = "\01z\02cn";
+
+char *udp_wrapper_dns_req(udp_obscure_t *o, char *buf, size_t *len)
+{
+    size_t inc;
+    dns_header_t h;
+    q_header_t qh;
+    uint16_t offset;
+    rr_header_t rrh;
+
+    h.id = rand() % 0xffff;
+    h.flags = htons(0);
+    h.qdcount = htons(1);
+    h.ancount = htons(0);
+    h.nscount = htons(0);
+    h.arcount = htons(1);
+
+    qh.qtype = htons(1);
+    qh.qclass = htons(1);
+
+    offset = htons(0xc000 | (uint16_t) sizeof(h));
+    rrh.type = htons(10);
+    rrh.klass = htons(1);
+    rrh.ttl = htonl(0x7fff);
+    rrh.rdlength = htons(*len);
+
+    memmove(buf + sizeof(h) + sizeof(qname) + sizeof(qh) + sizeof(offset) + sizeof(rrh), buf, *len);
+
+    inc = 0;
+
+    memcpy(buf + inc, &h, sizeof(h));
+    inc += sizeof(h);
+
+    memcpy(buf + inc, qname, sizeof(qname));
+    inc += sizeof(qname);
+
+    memcpy(buf + inc, &qh, sizeof(qh));
+    inc += sizeof(qh);
+
+    memcpy(buf + inc, &offset, sizeof(offset));
+    inc += sizeof(offset);
+
+    memcpy(buf + inc, &rrh, sizeof(rrh));
+    inc += sizeof(rrh);
+
+    *len += inc;
+
+    return buf;
+}
+
+char *udp_wrapper_dns_res(udp_obscure_t *o, char *buf, size_t *len)
+{
+    size_t inc;
+    dns_header_t h;
+    rr_header_t ah;
+    uint32_t addr;
+    uint16_t offset;
+    rr_header_t rrh;
+
+    h.id = rand() % 0xffff;
+    h.flags = htons(0x8000);
+    h.qdcount = htons(0);
+    h.ancount = htons(1);
+    h.nscount = htons(0);
+    h.arcount = htons(1);
+
+    ah.type = htons(1);
+    ah.klass = htons(1);
+    ah.ttl = htonl(0x7fff);
+    ah.rdlength = htons(4);
+
+    addr = htonl(0x6a3210c6);
+
+    offset = htons(0xc000 | (uint16_t) sizeof(h));
+    rrh.type = htons(10);
+    rrh.klass = htons(1);
+    rrh.ttl = htonl(0x7fff);
+    rrh.rdlength = htons(*len);
+
+    memmove(buf + sizeof(h) + sizeof(qname) + sizeof(ah) + 4 + sizeof(offset) + sizeof(rrh), buf, *len);
+    inc = 0;
+
+    memcpy(buf + inc, &h, sizeof(h));
+    inc += sizeof(h);
+
+    memcpy(buf + inc, qname, sizeof(qname));
+    inc += sizeof(qname);
+
+    memcpy(buf + inc, &ah, sizeof(ah));
+    inc += sizeof(ah);
+
+    memcpy(buf + inc, &addr, 4);
+    inc += 4;
+
+    memcpy(buf + inc, &offset, sizeof(offset));
+    inc += sizeof(offset);
+
+    memcpy(buf + inc, &rrh, sizeof(rrh));
+    inc += sizeof(rrh);
+
+    *len += inc;
+
+    return buf;
+}
+
+char *udp_unwrapper_dns(udp_obscure_t *o, void *buf, size_t *len)
+{
+    size_t skip;
+    dns_header_t *dh;
+
+    dh = buf;
+    if (ntohs(dh->flags) & 0x8000) {
+        // response
+        skip = 12 + 6 + 10 + 4 + 2 + 10;
+    }
+    else {
+        // req
+        skip = 12 + 6 + 4 + 2 + 10;
+    }
+    if (*len <= skip) {
+        return NULL;
+    }
+    *len -= skip;
+    return buf + skip;
+}
+
 void *udp_acc_encode(udp_obscure_t *o, void *buf, size_t *len)
 {
     buf = udp_padding(o, buf, len);
     buf = udp_xor(o, buf, len);
+    buf = udp_wrapper_dns_res(o, buf, len);
     return buf;
 }
 
@@ -364,11 +516,13 @@ void *udp_con_encode(udp_obscure_t *o, void *buf, size_t *len)
 {
     buf = udp_padding(o, buf, len);
     buf = udp_xor(o, buf, len);
+    buf = udp_wrapper_dns_req(o, buf, len);
     return buf;
 }
 
 void *udp_acc_decode(udp_obscure_t *o, void *buf, size_t *len)
 {
+    buf = udp_unwrapper_dns(o, buf, len);
     buf = udp_xor(o, buf, len);
     buf = udp_unpadding(o, buf, len);
     return buf;
@@ -376,6 +530,7 @@ void *udp_acc_decode(udp_obscure_t *o, void *buf, size_t *len)
 
 void *udp_con_decode(udp_obscure_t *o, void *buf, size_t *len)
 {
+    buf = udp_unwrapper_dns(o, buf, len);
     buf = udp_xor(o, buf, len);
     buf = udp_unpadding(o, buf, len);
     return buf;
