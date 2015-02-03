@@ -429,6 +429,7 @@ int parse_addrs(char *arg, struct sockaddr_in *addr, int *id_)
         *id_ = atoi(id + 1);
     }
 
+    addr->sin_family = AF_INET;
     addr->sin_port = htons(atoi(port + 1));
     rc = nl_queryname(arg, &addr->sin_addr);
     if (rc < 0) {
