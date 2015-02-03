@@ -33,6 +33,7 @@ obscure_t *obscure_new()
     obscure_t *o;
 
     o = calloc(1, sizeof(obscure_t));
+    o->id = -1;
     return o;
 }
 

@@ -19,12 +19,16 @@ static int s_con_obs = 0;
 static int s_daemon;
 static int s_partner;
 
-static char s_lhost[256];
-static char s_rhost[256];
-static uint16_t s_rport;
-static uint16_t s_lport;
+static char s_lhosts[256];
+static char s_rhosts[256];
 
 static int s_udp;
+
+static struct {
+    struct sockaddr_in  addr;
+    int                 id;
+} s_laddrs[10], s_raddrs[10];
+static int s_nladdrs, s_nraddrs;
 
 int options(int argc, char ** argv)
 {
@@ -42,10 +46,10 @@ int options(int argc, char ** argv)
                 s_partner = 1;
                 break;
             case 'l':
-                strcpy(s_lhost, optarg);
+                strcpy(s_lhosts, optarg);
                 break;
             case 'r':
-                strcpy(s_rhost, optarg);
+                strcpy(s_rhosts, optarg);
                 break;
             case 'v' :
                 version = 1;
@@ -100,8 +104,11 @@ void on_closed(nl_connection_t *c);
 void on_accepted(nl_connection_t *c, nl_connection_t *nc)
 {
     int                 rc;
+    acceptor_data_t     *acc_data;
     socket_data_t       *svr_data, *cli_data;
     nl_connection_t     *cc;
+
+    acc_data = c->data;
 
     /* accept side */
     svr_data =  socket_data_create();
@@ -142,8 +149,21 @@ void on_accepted(nl_connection_t *c, nl_connection_t *nc)
     svr_data->peer = cli_data;
     cli_data->peer = svr_data;
 
-    rc = nl_connection_connect(cc, (struct sockaddr_in *)c->data);
-    if (rc < 0) {
+    if (!s_acc_obs) {
+        rc = nl_connection_connect(cc, &acc_data->remote);
+        if (rc < 0) {
+        }
+    }
+    if (s_con_obs) {
+        uint16_t id;
+        nl_buf_t buf;
+
+        id = htons(acc_data->id);
+        buf.len = sizeof(id);
+        log_debug("id: %d", acc_data->id);
+        buf.buf = con_encode(svr_data->o, &id, &buf.len);
+        nl_connection_send(cc, &buf);
+        cli_data->nsend += buf.len;
     }
 }
 
@@ -167,6 +187,19 @@ void on_received(nl_connection_t *c, nl_buf_t *buf)
     }
     else if (s_con_obs && data->side == CONNECT_SIDE) {
         buf->buf = con_decode(data->o, buf->buf, &buf->len);
+    }
+
+    if (s_acc_obs && data->side == ACCEPT_SIDE && data->o->id == -1) {
+        int rc;
+
+        data->o->id = ntohs(*(uint16_t *)buf->buf);
+        log_debug("id: %d", data->o->id);
+        buf->buf += sizeof(uint16_t);
+        buf->len -= sizeof(uint16_t);
+
+        rc = nl_connection_connect(data->peer->c, &s_raddrs[data->o->id].addr);
+        if (rc < 0) {
+        }
     }
 
 #define SEND_BUFF_SIZE 16384
@@ -362,13 +395,53 @@ void on_udp_accepted(nl_datagram_t *d, nl_packet_t *p)
     nl_event_add_timer(&association->timeout, UDP_TIMEOUT);
 }
 
+int parse_addrs(char *arg, struct sockaddr_in *addr, int *id_)
+{
+    int rc, len;
+    char *end, *port, *id;
+
+    end = strchr(arg, '/');
+    if (end == NULL) {
+        len = strlen(arg);
+        if (len == 0) {
+            return 0;
+        }
+    }
+    else {
+        len = end - arg;
+        *end = 0;
+    }
+
+    port = strchr(arg, ':');
+    if (port == NULL || port - arg > len) {
+        fprintf(stderr, "invalid argument: %s\n", arg);
+        return -1;
+    }
+    *port = 0;
+
+    if (id_) {
+        id = strchr(port + 1, ':');
+        if (id == NULL || id - arg > len) {
+            fprintf(stderr, "invalid argument: %s\n", arg);
+            return -1;
+        }
+        *id = 0;
+        *id_ = atoi(id + 1);
+    }
+
+    addr->sin_port = htons(atoi(port + 1));
+    rc = nl_queryname(arg, &addr->sin_addr);
+    if (rc < 0) {
+        return -1;
+    }
+
+    return len + 1;
+}
+
 int main(int argc, char *argv[])
 {
-    int rc;
-    char *colon;
-    struct sockaddr_in local_addr, remote_addr;
-
-    srand(time(NULL));
+    int rc, len;
+    char *paddr;
 
     rc = options(argc, argv);
     if (rc == -1) {
@@ -383,45 +456,43 @@ int main(int argc, char *argv[])
         utils_partner("tunnel.pid", argv);
     }
 
-    if ((colon = strchr(s_lhost, ':')) == NULL) {
-        fprintf(stderr, "invalid argument: %s\n", s_lhost);
-        return -1;
-    }
-    *colon = 0;
-    if ((s_lport = atoi(colon + 1)) == 0) {
-        fprintf(stderr, "invalid argument: %s\n", s_lhost);
-        return -1;
-    }
-    if ((colon = strchr(s_rhost, ':')) == NULL) {
-        fprintf(stderr, "invalid argument: %s\n", s_rhost);
-        return -1;
-    }
-    *colon = 0;
-    if ((s_rport = atoi(colon + 1)) == 0) {
-        fprintf(stderr, "invalid argument: %s\n", s_rhost);
-        return -1;
+    srand(time(NULL));
+
+    paddr = s_lhosts;
+    for ( ; ; ) {
+        if (s_con_obs) {
+            len = parse_addrs(paddr, &s_laddrs[s_nladdrs].addr, &s_laddrs[s_nladdrs].id);
+            log_debug("addr: %s, id: %d", inet_ntoa(s_laddrs[s_nladdrs].addr.sin_addr), s_laddrs[s_nladdrs].id);
+        }
+        else {
+            len = parse_addrs(paddr, &s_laddrs[s_nladdrs].addr, NULL);
+        }
+        if (len < 0) {
+            return -1;
+        }
+        else if (len == 0) {
+            break;
+        }
+
+        s_nladdrs++;
+        paddr += len;
     }
 
-    rc = nl_event_init();
-    if (rc < 0) {
-        return -1;
+    paddr = s_rhosts;
+    for ( ; ; ) {
+        len = parse_addrs(paddr, &s_raddrs[s_nraddrs].addr, NULL);
+        if (len < 0) {
+            return -1;
+        }
+        else if (len == 0) {
+            break;
+        }
+
+        s_nraddrs++;
+        paddr += len;
     }
 
-    memset(&local_addr, 0, sizeof(local_addr));
-    local_addr.sin_family = AF_INET;
-    local_addr.sin_port = htons(s_lport);
-    rc = nl_queryname(s_lhost, &local_addr.sin_addr);
-    if (rc < 0) {
-        return -1;
-    }
-
-    memset(&remote_addr, 0, sizeof(struct sockaddr_in));
-    remote_addr.sin_family = AF_INET;
-    remote_addr.sin_port = htons(s_rport);
-    rc = nl_queryname(s_rhost, &remote_addr.sin_addr);
-    if (rc < 0) {
-        return -1;
-    }
+    nl_event_init();
 
     if (s_udp) {
         nl_datagram_t d;
@@ -431,31 +502,45 @@ int main(int argc, char *argv[])
             return -1;
         }
 
-        rc = nl_datagram_bind(&d, &local_addr);
+        // TODO: udp support multiple tunnels
+        rc = nl_datagram_bind(&d, &s_laddrs[0].addr);
         if (rc < 0) {
             return -1;
         }
 
         d.on_received = on_udp_accepted;
         d.on_sent = on_udp_sent;
-        d.data = &remote_addr;
+        d.data = &s_raddrs[0].addr;
 
         nl_event_add(&d.sock.rev);
         nl_event_add(&d.sock.wev);
     }
     else {
-        nl_connection_t *c;
+        int i;
+        for (i = 0; i < s_nladdrs; i++) {
+            nl_connection_t *c;
+            acceptor_data_t *acc_data;
 
-        c = nl_connection();
-        if (c == NULL) {
-            return -1;
-        }
-        c->cbs.on_accepted = on_accepted;
-        c->data = &remote_addr;
+            c = nl_connection();
+            if (c == NULL) {
+                return -1;
+            }
 
-        rc = nl_connection_listen(c, &local_addr, 1);
-        if (rc < 0) {
-            return -1;
+            acc_data = malloc(sizeof(acceptor_data_t));
+            if (acc_data == NULL) {
+                return -1;
+            }
+
+            // TODO: support multiple remote tunnels
+            acc_data->id = s_laddrs[i].id;
+            memcpy(&acc_data->remote, &s_raddrs[0].addr, sizeof(struct sockaddr_in));
+            c->cbs.on_accepted = on_accepted;
+            c->data = acc_data;
+
+            rc = nl_connection_listen(c, &s_laddrs[i].addr, 10);
+            if (rc < 0) {
+                return -1;
+            }
         }
     }
 

@@ -10,6 +10,7 @@ typedef struct obscure_s
     size_t      to_recv_size;
     size_t      to_send_size;
     int         last_key;
+    int         id;
 } obscure_t;
 
 obscure_t *obscure_new();

@@ -4,6 +4,12 @@
 #define ACCEPT_SIDE 0
 #define CONNECT_SIDE 1
 
+typedef struct acceptor_data_s
+{
+    uint16_t                id;
+    struct sockaddr_in      remote;
+} acceptor_data_t;
+
 typedef struct socket_data_s
 {
     struct socket_data_s    *peer;
