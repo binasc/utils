@@ -4,6 +4,9 @@
 #define ACCEPT_SIDE 0
 #define CONNECT_SIDE 1
 
+#include "network.h"
+#include "dgram.h"
+
 typedef struct acceptor_data_s
 {
     uint16_t                id;
