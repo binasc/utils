@@ -21,7 +21,7 @@ typedef struct nl_dgram_s
     nl_event_t          closing_ev;
 } nl_dgram_t;
 
-int nl_datagram(nl_dgram_t *d);
+int nl_dgram(nl_dgram_t *d);
 int nl_dgram_bind(nl_dgram_t *d, nl_address_t *addr);
 int nl_dgram_send(nl_dgram_t *d, nl_packet_t *p);
 int nl_dgram_close(nl_dgram_t *d);

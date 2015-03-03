@@ -142,7 +142,7 @@ static void udp_write_handler(nl_event_t *ev)
     }
 }
 
-int nl_datagram(nl_dgram_t *d)
+int nl_dgram(nl_dgram_t *d)
 {
     int rc;
 

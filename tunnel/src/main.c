@@ -29,6 +29,9 @@ static struct {
 } s_laddrs[10], s_raddrs[10];
 static int s_nladdrs, s_nraddrs;
 
+static nl_stream_t s_acceptors[10];
+static acceptor_data_t s_acceptor_data[10];
+
 int options(int argc, char ** argv)
 {
     int opt;
@@ -95,17 +98,16 @@ socket_data_t *socket_data_create()
     return data;
 }
 
-void on_accepted(nl_stream_t *c, nl_stream_t *nc);
+void on_accepted(nl_stream_t *c);
 void on_received(nl_stream_t *c, nl_buf_t *buf);
 void on_sent(nl_stream_t *c, nl_buf_t *buf);
 void on_closed(nl_stream_t *c);
 
-void on_accepted(nl_stream_t *c, nl_stream_t *nc)
+void on_accepted(nl_stream_t *c)
 {
     int                 rc;
     acceptor_data_t     *acc_data;
     socket_data_t       *svr_data, *cli_data;
-    nl_stream_t     *cc;
 
     acc_data = c->data;
 
@@ -113,43 +115,47 @@ void on_accepted(nl_stream_t *c, nl_stream_t *nc)
     svr_data =  socket_data_create();
     if (svr_data == NULL) {
     }
-    svr_data->c = nc;
     svr_data->side = ACCEPT_SIDE;
 
-    nc->cbs.on_received = on_received;
-    nc->cbs.on_sent = on_sent;
-    nc->cbs.on_closed = on_closed;
-    if (s_acc_obs) {
-        nc->cbs.splitter = acc_splitter;
+    rc = nl_stream_accept(c, &svr_data->s);
+    if (rc == -1) {
+        //TODO:
     }
-    nc->data = svr_data;
 
-    nl_event_add(&nc->sock.rev);
+    svr_data->s.cbs.on_received = on_received;
+    svr_data->s.cbs.on_sent = on_sent;
+    svr_data->s.cbs.on_closed = on_closed;
+    if (s_acc_obs) {
+        svr_data->s.cbs.splitter = acc_splitter;
+    }
+    svr_data->s.data = svr_data;
+
+    nl_event_add(&svr_data->s.sock.rev);
 
     /* connect side */
-    cc = nl_connection();
-    if (cc == NULL) {
-    }
-
     cli_data = socket_data_create();
     if (cli_data == NULL) {
     }
-    cli_data->c = cc;
     cli_data->side = CONNECT_SIDE;
 
-    cc->cbs.on_received = on_received;
-    cc->cbs.on_sent = on_sent;
-    cc->cbs.on_closed = on_closed;
-    if (s_con_obs) {
-        cc->cbs.splitter = con_splitter;
+    rc = nl_stream(&cli_data->s);
+    if (rc == -1) {
+        //TODO:
     }
-    cc->data = cli_data;
+
+    cli_data->s.cbs.on_received = on_received;
+    cli_data->s.cbs.on_sent = on_sent;
+    cli_data->s.cbs.on_closed = on_closed;
+    if (s_con_obs) {
+        cli_data->s.cbs.splitter = con_splitter;
+    }
+    cli_data->s.data = cli_data;
 
     svr_data->peer = cli_data;
     cli_data->peer = svr_data;
 
     if (!s_acc_obs) {
-        rc = nl_stream_connect(cc, &acc_data->remote);
+        rc = nl_stream_connect(&cli_data->s, &acc_data->remote);
         if (rc < 0) {
         }
     }
@@ -161,7 +167,7 @@ void on_accepted(nl_stream_t *c, nl_stream_t *nc)
         buf.len = sizeof(id);
         log_debug("id: %d", acc_data->id);
         buf.buf = con_encode(svr_data->o, &id, &buf.len);
-        nl_stream_send(cc, &buf);
+        nl_stream_send(&cli_data->s, &buf);
         cli_data->nsend += buf.len;
     }
 }
@@ -196,13 +202,13 @@ void on_received(nl_stream_t *c, nl_buf_t *buf)
         buf->buf += sizeof(uint16_t);
         buf->len -= sizeof(uint16_t);
 
-        rc = nl_stream_connect(data->peer->c, &s_raddrs[data->o->id].addr);
+        rc = nl_stream_connect(&data->peer->s, &s_raddrs[data->o->id].addr);
         if (rc < 0) {
         }
     }
 
 #define SEND_BUFF_SIZE 16384
-    nl_stream_send(data->peer->c, buf);
+    nl_stream_send(&data->peer->s, buf);
     data->peer->nsend += buf->len;
 
     if (!data->paused && data->peer->nsend > SEND_BUFF_SIZE) {
@@ -221,7 +227,7 @@ void on_sent(nl_stream_t *c, nl_buf_t *buf)
     if (data->nsend <= SEND_BUFF_SIZE) {
         if (data->peer && data->peer->paused) {
             data->peer->paused = 0;
-            nl_stream_resume_receiving(data->peer->c);
+            nl_stream_resume_receiving(&data->peer->s);
             log_debug("resume @ size: %zu", data->nsend);
         }
     }
@@ -237,7 +243,7 @@ void on_closed(nl_stream_t *c)
         peer = data->peer;
         peer->peer = NULL;
         data->peer = NULL;
-        nl_stream_close(peer->c);
+        nl_stream_close(&peer->s);
     }
     obscure_free(data->o);
     free(data);
@@ -359,7 +365,7 @@ void on_udp_accepted(nl_dgram_t *d, nl_packet_t *p)
         udp_obscure(&association->con_o);
 
         memcpy(&association->peer, &p->addr, sizeof(p->addr));
-        rc = nl_datagram(&association->d);
+        rc = nl_dgram(&association->d);
         if (rc < 0) {
             free(association);
         }
@@ -502,7 +508,7 @@ int main(int argc, char *argv[])
     if (s_udp) {
         nl_dgram_t d;
 
-        rc = nl_datagram(&d);
+        rc = nl_dgram(&d);
         if (rc < 0) {
             return -1;
         }
@@ -523,26 +529,18 @@ int main(int argc, char *argv[])
     else {
         int i;
         for (i = 0; i < s_nladdrs; i++) {
-            nl_stream_t *c;
-            acceptor_data_t *acc_data;
-
-            c = nl_connection();
-            if (c == NULL) {
-                return -1;
-            }
-
-            acc_data = malloc(sizeof(acceptor_data_t));
-            if (acc_data == NULL) {
+            rc = nl_stream(&s_acceptors[i]);
+            if (rc == -1) {
                 return -1;
             }
 
             // TODO: support multiple remote tunnels
-            acc_data->id = s_laddrs[i].id;
-            memcpy(&acc_data->remote, &s_raddrs[0].addr, sizeof(s_raddrs[0].addr));
-            c->cbs.on_accepted = on_accepted;
-            c->data = acc_data;
+            s_acceptor_data[i].id = s_laddrs[i].id;
+            memcpy(&s_acceptor_data[i].remote, &s_raddrs[0].addr, sizeof(s_raddrs[0].addr));
+            s_acceptors[i].cbs.on_accepted = on_accepted;
+            s_acceptors[i].data = &s_acceptor_data[i];
 
-            rc = nl_stream_listen(c, &s_laddrs[i].addr, 10);
+            rc = nl_stream_listen(&s_acceptors[i], &s_laddrs[i].addr, 10);
             if (rc < 0) {
                 return -1;
             }

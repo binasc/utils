@@ -8,24 +8,6 @@
 #include "stream.h"
 #include "log.h"
 
-static nl_stream_t *nl_stream_create()
-{
-    nl_stream_t *c;
-
-    c = calloc(1, sizeof(nl_stream_t));
-    if (c == NULL) {
-        return NULL;
-    }
-
-    c->tosend = list_create(sizeof(nl_buf_t), NULL, NULL);
-    if (c->tosend == NULL) {
-        free(c);
-        return NULL;
-    }
-
-    return c;
-}
-
 /* wrapper */
 static void accept_handler(nl_event_t *ev);
 static void connect_handler(nl_event_t *ev);
@@ -35,7 +17,7 @@ static void write_handler(nl_event_t *ev);
 static void accept_handler(nl_event_t *ev)
 {
     nl_socket_t         *sock;
-    nl_stream_t     *c, *nc;
+    nl_stream_t         *c;
     int                 rc;
 
     sock = ev->data;
@@ -44,28 +26,18 @@ static void accept_handler(nl_event_t *ev)
 
     c->error = 0;
     for ( ; ; ) {
-        nc = nl_stream_create();
-        if (nc == NULL) {
-            break;
-        }
-
-        rc = nl_accept(sock, &nc->sock);
+        rc = nl_accept(sock, &c->accepted);
         if (rc == -1) {
             if (sock->error) {
                 c->error = 1;
                 nl_stream_close(c);
+                break;
             }
-            else if (nc->sock.error) {
-                nc->error = 1;
-                nl_stream_close(nc);
+            else if (c->accepted.error) {
             }
-            break;
         }
 
-        nc->sock.data = nc;
-        nc->sock.wev.handler = write_handler;
-        nc->sock.rev.handler = read_handler;
-        c->cbs.on_accepted(c, nc);
+        c->cbs.on_accepted(c);
     }
 }
 
@@ -223,6 +195,7 @@ static void nl_stream_destroy(nl_stream_t *c)
         free(buf->buf);
     }
     list_destroy(c->tosend);
+
     if (c->remain.buf != NULL) {
         free(c->remain.buf);
         c->remain.buf = NULL;
@@ -237,8 +210,6 @@ static void nl_stream_destroy(nl_stream_t *c)
     if (c->cbs.on_closed != NULL) {
         c->cbs.on_closed(c);
     }
-
-    free(c);
 }
 
 static void linger_handler(nl_event_t *ev)
@@ -300,26 +271,27 @@ static void write_handler(nl_event_t *ev)
     }
 }
 
-nl_stream_t *nl_connection()
+int nl_stream(nl_stream_t *s)
 {
-    int                 rc;
-    nl_stream_t    *c;
+    int rc;
 
-    c = nl_stream_create();
-    if (c == NULL) {
-        return NULL;
+    memset(s, 0, sizeof(nl_stream_t));
+
+    s->tosend = list_create(sizeof(nl_buf_t), NULL, NULL);
+    if (s->tosend == NULL) {
+        return -1;
     }
 
-    rc = nl_socket(&c->sock, NL_TCP);
+    rc = nl_socket(&s->sock, NL_TCP);
     if (rc == -1) {
-        c->error = 1;
-        nl_stream_close(c);
-        return NULL;
+        s->error = 1;
+        nl_stream_close(s);
+        return -1;
     }
 
-    c->sock.data = c;
+    s->sock.data = s;
 
-    return c;
+    return 0;
 }
 
 int nl_stream_listen(nl_stream_t *c, nl_address_t *addr, int backlog)
@@ -330,6 +302,25 @@ int nl_stream_listen(nl_stream_t *c, nl_address_t *addr, int backlog)
         return -1;
     }
     return nl_listen(&c->sock, backlog);
+}
+
+int nl_stream_accept(nl_stream_t *acceptor, nl_stream_t *s)
+{
+    memset(s, 0, sizeof(nl_stream_t));
+
+    s->tosend = list_create(sizeof(nl_buf_t), NULL, NULL);
+    if (s->tosend == NULL) {
+        return -1;
+    }
+
+    nl_socket_copy(&s->sock, &acceptor->accepted);
+
+    s->sock.data = s;
+
+    s->sock.wev.handler = write_handler;
+    s->sock.rev.handler = read_handler;
+
+    return 0;
 }
 
 int nl_stream_connect(nl_stream_t *c, nl_address_t *addr)

@@ -424,3 +424,10 @@ int nl_close(nl_socket_t *sock)
     return close(sock->fd);
 }
 
+void nl_socket_copy(nl_socket_t *dst, nl_socket_t *src)
+{
+    memcpy(dst, src, sizeof(nl_socket_t));
+    dst->wev.data = dst;
+    dst->rev.data = dst;
+}
+

@@ -16,7 +16,7 @@ typedef struct acceptor_data_s
 typedef struct socket_data_s
 {
     struct socket_data_s    *peer;
-    nl_stream_t             *c;
+    nl_stream_t             s;
     obscure_t               *o;
     size_t                  nsend;
     unsigned                side :1;

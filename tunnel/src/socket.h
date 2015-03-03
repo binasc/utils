@@ -37,5 +37,7 @@ int nl_send(nl_socket_t *sock, const char *buf, size_t len);
 int nl_sendto(nl_socket_t *sock, const char *buf, size_t len, nl_address_t *addr);
 int nl_close(nl_socket_t *sock);
 
+void nl_socket_copy(nl_socket_t *dst, nl_socket_t *src);
+
 #endif
 
