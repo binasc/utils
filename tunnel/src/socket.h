@@ -4,16 +4,15 @@
 #include "address.h"
 #include "event.h"
 
-// TODO: rename to PF_TCP, PF_UDP ?
-#define NL_TCP 0
-#define NL_UDP 1
+#define NL_STREAM   0
+#define NL_DGRAM    1
 
 typedef struct nl_socket_s
 {
     nl_address_t        addr;
     int                 err;
     int                 fd;
-    unsigned            type :1;
+    unsigned            type :3;
     unsigned            open :1;
     unsigned            error :1;
     unsigned            connected :1;

@@ -282,7 +282,7 @@ int nl_stream(nl_stream_t *s)
         return -1;
     }
 
-    rc = nl_socket(&s->sock, NL_TCP);
+    rc = nl_socket(&s->sock, NL_STREAM);
     if (rc == -1) {
         s->error = 1;
         nl_stream_close(s);

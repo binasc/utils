@@ -31,10 +31,10 @@ int nl_socket(nl_socket_t *sock, int type)
     sock->err = 0;
 
     switch (type) {
-    case NL_TCP:
+    case NL_STREAM:
         sock_type = SOCK_STREAM;
         break;
-    case NL_UDP:
+    case NL_DGRAM:
         sock_type = SOCK_DGRAM;
         break;
     default:
@@ -43,6 +43,7 @@ int nl_socket(nl_socket_t *sock, int type)
         return -1;
     }
 
+    // TODO: support PF_INET6
     fd = socket(PF_INET, sock_type, 0);
     if (fd == -1) {
         sock->err = errno;
@@ -121,7 +122,7 @@ int nl_accept(nl_socket_t *sock, nl_socket_t *nsock)
     }
 
     nl_socket_init(nsock);
-    nsock->type = NL_TCP;
+    nsock->type = NL_STREAM;
     nsock->fd = fd;
     nsock->open = 1;
     nsock->connected = 1;

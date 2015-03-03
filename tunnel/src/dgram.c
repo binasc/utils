@@ -153,7 +153,7 @@ int nl_dgram(nl_dgram_t *d)
         return -1;
     }
 
-    rc = nl_socket(&d->sock, NL_UDP);
+    rc = nl_socket(&d->sock, NL_DGRAM);
     if (rc == -1) {
         d->error = 1;
         nl_dgram_close(d);
