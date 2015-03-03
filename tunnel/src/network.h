@@ -5,8 +5,6 @@
 #include "event.h"
 #include "list.h"
 
-int nl_queryname(const char *name, struct in_addr *addr);
-
 /* wrapper */
 typedef struct nl_buf_s
 {
@@ -42,8 +40,8 @@ typedef struct nl_connection_s
 } nl_connection_t;
 
 nl_connection_t *nl_connection();
-int nl_connection_listen(nl_connection_t *c, struct sockaddr_in *addr, int backlog);
-int nl_connection_connect(nl_connection_t *c, struct sockaddr_in *addr);
+int nl_connection_listen(nl_connection_t *c, nl_address_t *addr, int backlog);
+int nl_connection_connect(nl_connection_t *c, nl_address_t *addr);
 int nl_connection_send(nl_connection_t *c, nl_buf_t *buf);
 int nl_connection_close(nl_connection_t *c);
 
@@ -54,7 +52,7 @@ void nl_connection_resume_sending(nl_connection_t *c);
 
 typedef struct nl_packet_s
 {
-    struct sockaddr_in  addr;
+    struct sockaddr     addr;
     nl_buf_t            buf;
 } nl_packet_t;
 
@@ -74,7 +72,7 @@ typedef struct nl_datagram_s
 } nl_datagram_t;
 
 int nl_datagram(nl_datagram_t *d);
-int nl_datagram_bind(nl_datagram_t *d, struct sockaddr_in *addr);
+int nl_datagram_bind(nl_datagram_t *d, nl_address_t *addr);
 int nl_datagram_send(nl_datagram_t *d, nl_packet_t *p);
 int nl_datagram_close(nl_datagram_t *d);
 

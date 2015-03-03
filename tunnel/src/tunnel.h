@@ -7,7 +7,7 @@
 typedef struct acceptor_data_s
 {
     uint16_t                id;
-    struct sockaddr_in      remote;
+    nl_address_t            remote;
 } acceptor_data_t;
 
 typedef struct socket_data_s

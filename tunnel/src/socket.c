@@ -25,11 +25,25 @@ static void nl_socket_init(nl_socket_t *sock)
 
 int nl_socket(nl_socket_t *sock, int type)
 {
-    int fd, flags;
+    int fd, sock_type, flags;
 
     sock->error = 0;
     sock->err = 0;
-    fd = socket(PF_INET, type == NL_TCP ? SOCK_STREAM : SOCK_DGRAM, 0);
+
+    switch (type) {
+    case NL_TCP:
+        sock_type = SOCK_STREAM;
+        break;
+    case NL_UDP:
+        sock_type = SOCK_DGRAM;
+        break;
+    default:
+        sock->error = 1;
+        log_error("#- unsupported type: %d", type);
+        return -1;
+    }
+
+    fd = socket(PF_INET, sock_type, 0);
     if (fd == -1) {
         sock->err = errno;
         sock->error = 1;
@@ -90,9 +104,6 @@ int nl_accept(nl_socket_t *sock, nl_socket_t *nsock)
 
     flags = fcntl(fd, F_GETFL, 0);
     if (flags == -1) {
-        /* we do not set error flag */
-        /* in order to distinguish  */
-        /* the source of error      */
         nsock->error = 1;
         nsock->err = errno;
         log_error("#%d fcntl F_GETFL: %s", fd, strerror(nsock->err));
@@ -102,9 +113,6 @@ int nl_accept(nl_socket_t *sock, nl_socket_t *nsock)
 
     flags = fcntl(fd, F_SETFL, flags | O_NONBLOCK);
     if (flags == -1) {
-        /* we do not set error flag */
-        /* in order to distinguish  */
-        /* the source of error      */
         nsock->error = 1;
         nsock->err = errno;
         log_error("#%d fcntl F_SETFL: %s", fd, strerror(nsock->err));
@@ -123,9 +131,10 @@ int nl_accept(nl_socket_t *sock, nl_socket_t *nsock)
     return 0;
 }
 
-int nl_bind(nl_socket_t *sock, struct sockaddr_in *addr)
+int nl_bind(nl_socket_t *sock, nl_address_t *addr)
 {
     int rc, on;
+    struct sockaddr saddr;
 
     sock->error = 0;
     sock->err = 0;
@@ -140,7 +149,13 @@ int nl_bind(nl_socket_t *sock, struct sockaddr_in *addr)
         return -1;
     }
 
-    rc = bind(sock->fd, (struct sockaddr *)addr, sizeof(*addr));
+    rc = nl_address_getsockaddr(addr, &saddr);
+    if (rc == -1) {
+        sock->error = 1;
+        return -1;
+    }
+
+    rc = bind(sock->fd, &saddr, sizeof(saddr));
     if (rc == -1) {
         sock->error = 1;
         sock->err = errno;
@@ -218,13 +233,21 @@ static void nl_connect_wrapper(nl_event_t *ev)
     ev->handler(ev);
 }
 
-int nl_connect(nl_socket_t *sock, struct sockaddr_in *addr)
+int nl_connect(nl_socket_t *sock, nl_address_t *addr)
 {
-    int             rc;
+    int rc;
+    struct sockaddr saddr;
 
     sock->error = 0;
     sock->err = 0;
-    rc = connect(sock->fd, (struct sockaddr *)addr, sizeof(*addr));
+
+    rc = nl_address_getsockaddr(addr, &saddr);
+    if (rc == -1) {
+        sock->error = 1;
+        return -1;
+    }
+
+    rc = connect(sock->fd, &saddr, sizeof(saddr));
     if (rc == 0) {
         nl_event_add_timer(&sock->wev, 0);
     }
@@ -265,15 +288,42 @@ int nl_recv(nl_socket_t *sock, char *buf, size_t len)
     return rc;
 }
 
-int nl_recvfrom(nl_socket_t *sock, char *buf, size_t len, struct sockaddr_in *addr)
+static int inet46_ntop(struct sockaddr *addr, char *dst)
+{
+    if (addr->sa_family == AF_INET) {
+        struct sockaddr_in *in = (struct sockaddr_in *)addr;
+        if (inet_ntop(AF_INET, &in->sin_addr, dst, INET_ADDRSTRLEN) == NULL) {
+            return -1;
+        }
+        sprintf(dst, "%s:%d", dst, ntohs(in->sin_port));
+
+        return 0;
+    }
+    else if (addr->sa_family == AF_INET6) {
+        struct sockaddr_in6 *in6 = (struct sockaddr_in6 *)addr;
+        if (inet_ntop(AF_INET6, &in6->sin6_addr, dst, INET6_ADDRSTRLEN) == NULL) {
+            return -1;
+        }
+        printf(dst, "%s:%d", dst, ntohs(in6->sin6_port));
+
+        return 0;
+    }
+
+    return -1;
+}
+
+int nl_recvfrom(nl_socket_t *sock, char *buf, size_t len, nl_address_t *addr)
 {
     int rc;
+    struct sockaddr saddr;
     socklen_t slen;
+    char output[INET6_ADDRSTRLEN + 6];
 
     sock->error = 0;
     sock->err = 0;
-    slen = sizeof(*addr);
-    rc = recvfrom(sock->fd, buf, len, 0, (struct sockaddr *)addr, &slen);
+
+    slen = sizeof(saddr);
+    rc = recvfrom(sock->fd, buf, len, 0, &saddr, &slen);
     if (rc < 0) {
         sock->err = errno;
         if (sock->err != EAGAIN && sock->err != EWOULDBLOCK) {
@@ -283,7 +333,17 @@ int nl_recvfrom(nl_socket_t *sock, char *buf, size_t len, struct sockaddr_in *ad
         return -1;
     }
 
-    log_trace("#%d recvfrom(%s:%d) %d bytes", sock->fd, inet_ntoa(addr->sin_addr), ntohs(addr->sin_port), rc);
+    rc = nl_address_setsockaddr(addr, &saddr);
+    if (rc == -1) {
+        return -1;
+    }
+
+    if (inet46_ntop(&saddr, output) == -1) {
+        log_trace("#%d recvfrom(?:?) %d bytes", sock->fd, rc);
+    }
+    else {
+        log_trace("#%d recvfrom(%s) %d bytes", sock->fd, output, rc);
+    }
 
     return rc;
 }
@@ -309,23 +369,42 @@ int nl_send(nl_socket_t *sock, const char *buf, size_t len)
     return rc;
 }
 
-int nl_sendto(nl_socket_t *sock, const char *buf, size_t len, struct sockaddr_in *addr)
+int nl_sendto(nl_socket_t *sock, const char *buf, size_t len, nl_address_t *addr)
 {
     int rc;
+    struct sockaddr saddr;
+    char output[INET6_ADDRSTRLEN + 6];
 
     sock->error = 0;
     sock->err = 0;
-    rc = sendto(sock->fd, buf, len, MSG_NOSIGNAL, (struct sockaddr *)addr, sizeof(*addr));
+
+    rc = nl_address_getsockaddr(addr, &saddr);
+    if (rc == -1) {
+        sock->error = 1;
+        return -1;
+    }
+
+    rc = sendto(sock->fd, buf, len, MSG_NOSIGNAL, &saddr, sizeof(saddr));
     if (rc < 0) {
         sock->err = errno;
         if (sock->err != EAGAIN && sock->err != EWOULDBLOCK) {
             sock->error = 1;
-            log_error("#%d sendto(%s:%d): %s", sock->fd, inet_ntoa(addr->sin_addr), ntohs(addr->sin_port), strerror(sock->err));
+            if (inet46_ntop(&saddr, output) == -1) {
+                log_error("#%d sendto(?:?): %s", sock->fd, strerror(sock->err));
+            }
+            else {
+                log_error("#%d sendto(%s): %s", sock->fd, output, strerror(sock->err));
+            }
         }
         return -1;
     }
 
-    log_trace("#%d sendto(%s:%d) %d bytes", sock->fd, inet_ntoa(addr->sin_addr), ntohs(addr->sin_port), rc);
+    if (inet46_ntop(&saddr, output) == -1) {
+        log_trace("#%d sendto(?:?) %d bytes", sock->fd, rc);
+    }
+    else {
+        log_trace("#%d sendto(%s) %d bytes", sock->fd, output, rc);
+    }
 
     return rc;
 }

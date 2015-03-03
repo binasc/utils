@@ -8,41 +8,6 @@
 #include "network.h"
 #include "log.h"
 
-int nl_queryname(const char *name, struct in_addr *addr)
-{
-    int rc;
-    struct addrinfo hints;
-    struct addrinfo *result, *rp;
-
-    memset(&hints, 0, sizeof(struct addrinfo));
-    //hints.ai_family = AF_UNSPEC;  /* Allow IPv4 or IPv6 */
-    hints.ai_family = AF_INET;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags = AI_PASSIVE;    /* For wildcard IP address */
-    hints.ai_protocol = 0;          /* Any protocol */
-    hints.ai_canonname = NULL;
-    hints.ai_addr = NULL;
-    hints.ai_next = NULL;
-
-    rc = getaddrinfo(name, NULL, &hints, &result);
-    if (rc == -1) {
-        log_error("getaddrinfo: %s", gai_strerror(rc));
-        return -1;
-    }
-
-    for (rp = result; rp != NULL; rp = rp->ai_next) {
-        if (rp->ai_addrlen == sizeof(struct sockaddr_in)) {
-            *addr = ((struct sockaddr_in *)rp->ai_addr)->sin_addr;
-            freeaddrinfo(result);
-            return 0;
-        }
-    }
-
-    freeaddrinfo(result);
-    log_error("cann't resolve %s", name);
-    return -1;
-}
-
 static nl_connection_t *nl_connection_create()
 {
     nl_connection_t *c;
@@ -357,7 +322,7 @@ nl_connection_t *nl_connection()
     return c;
 }
 
-int nl_connection_listen(nl_connection_t *c, struct sockaddr_in *addr, int backlog)
+int nl_connection_listen(nl_connection_t *c, nl_address_t *addr, int backlog)
 {
     c->sock.rev.handler = accept_handler;
     c->sock.wev.handler = NULL;
@@ -367,7 +332,7 @@ int nl_connection_listen(nl_connection_t *c, struct sockaddr_in *addr, int backl
     return nl_listen(&c->sock, backlog);
 }
 
-int nl_connection_connect(nl_connection_t *c, struct sockaddr_in *addr)
+int nl_connection_connect(nl_connection_t *c, nl_address_t *addr)
 {
     c->sock.rev.handler = NULL;
     c->sock.wev.handler = connect_handler;
@@ -487,6 +452,7 @@ static void udp_read_handler(nl_event_t *ev)
     nl_socket_t    *sock;
     nl_datagram_t  *d;
     nl_packet_t     p;
+    nl_address_t    addr;
 
     sock = ev->data;
     log_trace("#%d udp_read_handler", sock->fd);
@@ -494,7 +460,13 @@ static void udp_read_handler(nl_event_t *ev)
     d->error = 0;
 
     for ( ; ; ) {
-        rc = nl_recvfrom(sock, s_recv_buff, RECV_BUFF_SIZE, &p.addr);
+        rc = nl_address_setsockaddr(&addr, &p.addr);
+        if (rc == -1) {
+            d->error = 1;
+            break;
+        }
+
+        rc = nl_recvfrom(sock, s_recv_buff, RECV_BUFF_SIZE, &addr);
         if (rc < 0) {
             if (!sock->error) {
                 /* EAGAIN || EWOULDBLOCK */
@@ -518,11 +490,12 @@ static void udp_read_handler(nl_event_t *ev)
 
 static void udp_write_handler(nl_event_t *ev)
 {
+    int                 rc;
     nl_socket_t         *sock;
     nl_datagram_t       *d;
     nl_packet_t         *p;
     nl_buf_t            *buf;
-    int                 rc;
+    nl_address_t        addr;
 
     sock = ev->data;
     log_trace("#%d udpwrite_handler", sock->fd);
@@ -530,7 +503,18 @@ static void udp_write_handler(nl_event_t *ev)
     while (!list_empty(d->tosend)) {
         p = (nl_packet_t *)list_front(d->tosend);
         buf = &p->buf;
-        rc = nl_sendto(sock, buf->buf, buf->len, &p->addr);
+
+        rc = nl_address_setsockaddr(&addr, &p->addr);
+        if (rc == -1) {
+            d->error = 1;
+            if (d->closing_ev.timer_set) {
+                nl_event_del_timer(&d->closing_ev);
+            }
+            nl_datagram_close(d);
+            return;
+        }
+
+        rc = nl_sendto(sock, buf->buf, buf->len, &addr);
         if (rc == (int)buf->len) {
             if (d->on_sent) {
                 d->on_sent(d, p);
@@ -595,7 +579,7 @@ int nl_datagram(nl_datagram_t *d)
     return 0;
 }
 
-int nl_datagram_bind(nl_datagram_t *d, struct sockaddr_in *addr)
+int nl_datagram_bind(nl_datagram_t *d, nl_address_t *addr)
 {
     return nl_bind(&d->sock, addr);
 }

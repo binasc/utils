@@ -25,7 +25,7 @@ static char s_rhosts[256];
 static int s_udp;
 
 static struct {
-    struct sockaddr_in  addr;
+    nl_address_t        addr;
     int                 id;
 } s_laddrs[10], s_raddrs[10];
 static int s_nladdrs, s_nraddrs;
@@ -246,9 +246,11 @@ void on_closed(nl_connection_t *c)
 
 static datagram_data_t *udp_addr2data;
 
-static datagram_data_t *find_datagram(struct sockaddr_in *addr)
+static datagram_data_t *find_datagram(struct sockaddr *saddr)
 {
     datagram_data_t *d;
+    // FIXME: assume sockaddr_in here
+    struct sockaddr_in *addr = (struct sockaddr_in *)saddr;
 
     for (d = udp_addr2data; d != NULL; d = d->next) {
         if (d->peer.sin_addr.s_addr == addr->sin_addr.s_addr &&
@@ -395,7 +397,7 @@ void on_udp_accepted(nl_datagram_t *d, nl_packet_t *p)
     nl_event_add_timer(&association->timeout, UDP_TIMEOUT);
 }
 
-int parse_addrs(char *arg, struct sockaddr_in *addr, int *id_)
+int parse_addrs(char *arg, nl_address_t *addr, int *id_)
 {
     int rc, len;
     char *end, *port, *id;
@@ -429,9 +431,12 @@ int parse_addrs(char *arg, struct sockaddr_in *addr, int *id_)
         *id_ = atoi(id + 1);
     }
 
-    addr->sin_family = AF_INET;
-    addr->sin_port = htons(atoi(port + 1));
-    rc = nl_queryname(arg, &addr->sin_addr);
+    rc = nl_address_setname(addr, arg);
+    if (rc < 0) {
+        return -1;
+    }
+
+    rc = nl_address_setport(addr, htons(atoi(port + 1)));
     if (rc < 0) {
         return -1;
     }
@@ -463,7 +468,7 @@ int main(int argc, char *argv[])
     for ( ; ; ) {
         if (s_con_obs) {
             len = parse_addrs(paddr, &s_laddrs[s_nladdrs].addr, &s_laddrs[s_nladdrs].id);
-            log_debug("addr: %s, id: %d", inet_ntoa(s_laddrs[s_nladdrs].addr.sin_addr), s_laddrs[s_nladdrs].id);
+            //log_debug("addr: %s, id: %d", inet_ntoa(s_laddrs[s_nladdrs].addr.sin_addr), s_laddrs[s_nladdrs].id);
         }
         else {
             len = parse_addrs(paddr, &s_laddrs[s_nladdrs].addr, NULL);
@@ -534,7 +539,7 @@ int main(int argc, char *argv[])
 
             // TODO: support multiple remote tunnels
             acc_data->id = s_laddrs[i].id;
-            memcpy(&acc_data->remote, &s_raddrs[0].addr, sizeof(struct sockaddr_in));
+            memcpy(&acc_data->remote, &s_raddrs[0].addr, sizeof(s_raddrs[0].addr));
             c->cbs.on_accepted = on_accepted;
             c->data = acc_data;
 
