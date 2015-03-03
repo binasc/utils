@@ -4,7 +4,7 @@
 #define ACCEPT_SIDE 0
 #define CONNECT_SIDE 1
 
-#include "network.h"
+#include "stream.h"
 #include "dgram.h"
 
 typedef struct acceptor_data_s

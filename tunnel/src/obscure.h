@@ -1,7 +1,7 @@
 #ifndef __OBSCURE_H__
 #define __OBSCURE_H__
 
-#include "network.h"
+#include "stream.h"
 
 typedef struct obscure_s
 {

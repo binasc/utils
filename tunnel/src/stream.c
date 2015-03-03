@@ -5,7 +5,7 @@
 #include <netdb.h>
 #include <string.h>
 
-#include "network.h"
+#include "stream.h"
 #include "log.h"
 
 static nl_connection_t *nl_connection_create()

@@ -8,7 +8,6 @@
 #include <assert.h>
 
 #include "utils.h"
-#include "network.h"
 #include "obscure.h"
 #include "tunnel.h"
 #include "log.h"
