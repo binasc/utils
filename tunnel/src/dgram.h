@@ -6,25 +6,25 @@
 #include "list.h"
 #include "buffer.h"
 
-typedef struct nl_datagram_s
+typedef struct nl_dgram_s
 {
     nl_socket_t         sock;
     void               *data;
 
-    void              (*on_received)(struct nl_datagram_s *, nl_packet_t *);
-    void              (*on_sent)(struct nl_datagram_s *, nl_packet_t *);
-    void              (*on_closed)(struct nl_datagram_s *);
+    void              (*on_received)(struct nl_dgram_s *, nl_packet_t *);
+    void              (*on_sent)(struct nl_dgram_s *, nl_packet_t *);
+    void              (*on_closed)(struct nl_dgram_s *);
 
     struct list_t      *tosend;
 
     unsigned            error :1;
     nl_event_t          closing_ev;
-} nl_datagram_t;
+} nl_dgram_t;
 
-int nl_datagram(nl_datagram_t *d);
-int nl_datagram_bind(nl_datagram_t *d, nl_address_t *addr);
-int nl_datagram_send(nl_datagram_t *d, nl_packet_t *p);
-int nl_datagram_close(nl_datagram_t *d);
+int nl_datagram(nl_dgram_t *d);
+int nl_dgram_bind(nl_dgram_t *d, nl_address_t *addr);
+int nl_dgram_send(nl_dgram_t *d, nl_packet_t *p);
+int nl_dgram_close(nl_dgram_t *d);
 
 #endif
 

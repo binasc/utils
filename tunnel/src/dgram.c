@@ -2,7 +2,7 @@
 #include "log.h"
 #include <string.h>
 
-static void nl_datagram_destroy(nl_datagram_t *c)
+static void nl_dgram_destroy(nl_dgram_t *c)
 {
     struct list_iterator_t  it;
     nl_packet_t             *p;
@@ -27,7 +27,7 @@ static void nl_datagram_destroy(nl_datagram_t *c)
 static void udp_linger_handler(nl_event_t *ev)
 {
     log_trace("udp_linger_handler");
-    nl_datagram_destroy((nl_datagram_t *)ev->data);
+    nl_dgram_destroy((nl_dgram_t *)ev->data);
 }
 
 static void udp_read_handler(nl_event_t *ev)
@@ -38,7 +38,7 @@ static void udp_read_handler(nl_event_t *ev)
 
     int             rc;
     nl_socket_t    *sock;
-    nl_datagram_t  *d;
+    nl_dgram_t  *d;
     nl_packet_t     p;
     nl_address_t    addr;
 
@@ -73,14 +73,14 @@ static void udp_read_handler(nl_event_t *ev)
         }
     }
 
-    nl_datagram_close(d);
+    nl_dgram_close(d);
 }
 
 static void udp_write_handler(nl_event_t *ev)
 {
     int                 rc;
     nl_socket_t         *sock;
-    nl_datagram_t       *d;
+    nl_dgram_t       *d;
     nl_packet_t         *p;
     nl_buf_t            *buf;
     nl_address_t        addr;
@@ -98,7 +98,7 @@ static void udp_write_handler(nl_event_t *ev)
             if (d->closing_ev.timer_set) {
                 nl_event_del_timer(&d->closing_ev);
             }
-            nl_datagram_close(d);
+            nl_dgram_close(d);
             return;
         }
 
@@ -127,7 +127,7 @@ static void udp_write_handler(nl_event_t *ev)
                 if (d->closing_ev.timer_set) {
                     nl_event_del_timer(&d->closing_ev);
                 }
-                nl_datagram_close(d);
+                nl_dgram_close(d);
                 return;
             }
         }
@@ -137,16 +137,16 @@ static void udp_write_handler(nl_event_t *ev)
         nl_event_del(&d->sock.wev);
         if (d->closing_ev.timer_set) {
             nl_event_del_timer(&d->closing_ev);
-            nl_datagram_close(d);
+            nl_dgram_close(d);
         }
     }
 }
 
-int nl_datagram(nl_datagram_t *d)
+int nl_datagram(nl_dgram_t *d)
 {
     int rc;
 
-    memset(d, 0, sizeof(nl_datagram_t));
+    memset(d, 0, sizeof(nl_dgram_t));
 
     d->tosend = list_create(sizeof(nl_packet_t), NULL, NULL);
     if (d->tosend == NULL) {
@@ -156,7 +156,7 @@ int nl_datagram(nl_datagram_t *d)
     rc = nl_socket(&d->sock, NL_UDP);
     if (rc == -1) {
         d->error = 1;
-        nl_datagram_close(d);
+        nl_dgram_close(d);
         return -1;
     }
 
@@ -167,12 +167,12 @@ int nl_datagram(nl_datagram_t *d)
     return 0;
 }
 
-int nl_datagram_bind(nl_datagram_t *d, nl_address_t *addr)
+int nl_dgram_bind(nl_dgram_t *d, nl_address_t *addr)
 {
     return nl_bind(&d->sock, addr);
 }
 
-int nl_datagram_send(nl_datagram_t *d, nl_packet_t *p)
+int nl_dgram_send(nl_dgram_t *d, nl_packet_t *p)
 {
     nl_packet_t tosend;
 
@@ -197,7 +197,7 @@ int nl_datagram_send(nl_datagram_t *d, nl_packet_t *p)
     return 0;
 }
 
-int nl_datagram_close(nl_datagram_t *d)
+int nl_dgram_close(nl_dgram_t *d)
 {
     if (d->closing_ev.timer_set) {
         return 0;

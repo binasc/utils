@@ -26,8 +26,8 @@ typedef struct socket_data_s
 typedef struct datagram_data_s
 {
     struct sockaddr_in      peer;
-    nl_datagram_t           d;
-    nl_datagram_t           *acceptor;
+    nl_dgram_t              d;
+    nl_dgram_t              *acceptor;
     struct datagram_data_s  *next;
     udp_obscure_t           acc_o;
     udp_obscure_t           con_o;
