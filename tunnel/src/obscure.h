@@ -16,8 +16,8 @@ typedef struct obscure_s
 obscure_t *obscure_new();
 void obscure_free(obscure_t *o);
 
-int acc_splitter(nl_connection_t *c, const nl_buf_t *in, nl_buf_t *out);
-int con_splitter(nl_connection_t *c, const nl_buf_t *in, nl_buf_t *out);
+int acc_splitter(nl_stream_t *c, const nl_buf_t *in, nl_buf_t *out);
+int con_splitter(nl_stream_t *c, const nl_buf_t *in, nl_buf_t *out);
 
 void *acc_encode(obscure_t *o, void *buf, size_t *len);
 void *con_encode(obscure_t *o, void *buf, size_t *len);

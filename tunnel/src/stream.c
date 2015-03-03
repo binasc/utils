@@ -8,11 +8,11 @@
 #include "stream.h"
 #include "log.h"
 
-static nl_connection_t *nl_connection_create()
+static nl_stream_t *nl_stream_create()
 {
-    nl_connection_t *c;
+    nl_stream_t *c;
 
-    c = calloc(1, sizeof(nl_connection_t));
+    c = calloc(1, sizeof(nl_stream_t));
     if (c == NULL) {
         return NULL;
     }
@@ -35,7 +35,7 @@ static void write_handler(nl_event_t *ev);
 static void accept_handler(nl_event_t *ev)
 {
     nl_socket_t         *sock;
-    nl_connection_t     *c, *nc;
+    nl_stream_t     *c, *nc;
     int                 rc;
 
     sock = ev->data;
@@ -44,7 +44,7 @@ static void accept_handler(nl_event_t *ev)
 
     c->error = 0;
     for ( ; ; ) {
-        nc = nl_connection_create();
+        nc = nl_stream_create();
         if (nc == NULL) {
             break;
         }
@@ -53,11 +53,11 @@ static void accept_handler(nl_event_t *ev)
         if (rc == -1) {
             if (sock->error) {
                 c->error = 1;
-                nl_connection_close(c);
+                nl_stream_close(c);
             }
             else if (nc->sock.error) {
                 nc->error = 1;
-                nl_connection_close(nc);
+                nl_stream_close(nc);
             }
             break;
         }
@@ -72,7 +72,7 @@ static void accept_handler(nl_event_t *ev)
 static void connect_handler(nl_event_t *ev)
 {
     nl_socket_t *sock;
-    nl_connection_t *c;
+    nl_stream_t *c;
 
     sock = ev->data;
     log_trace("#%d connect_handler", sock->fd);
@@ -80,7 +80,7 @@ static void connect_handler(nl_event_t *ev)
 
     if (!sock->connected || sock->error) {
         c->error = 1;
-        nl_connection_close(c);
+        nl_stream_close(c);
         return;
     }
 
@@ -98,7 +98,7 @@ static void connect_handler(nl_event_t *ev)
     }
 }
 
-static int enlarge_buffer(nl_connection_t *c, size_t size)
+static int enlarge_buffer(nl_stream_t *c, size_t size)
 {
     char *buf = NULL;
 
@@ -121,7 +121,7 @@ static int enlarge_buffer(nl_connection_t *c, size_t size)
     return 0;
 }
 
-static int packet_handler(nl_connection_t *c, char *buf, size_t len)
+static int packet_handler(nl_stream_t *c, char *buf, size_t len)
 {
     nl_buf_t    in, out;
     int         n;
@@ -177,7 +177,7 @@ static void read_handler(nl_event_t *ev)
 
     int rc;
     nl_socket_t *sock;
-    nl_connection_t *c;
+    nl_stream_t *c;
 
     sock = ev->data;
     log_trace("#%d read_handler", sock->fd);
@@ -208,10 +208,10 @@ static void read_handler(nl_event_t *ev)
         }
     }
 
-    nl_connection_close(c);
+    nl_stream_close(c);
 }
 
-static void nl_connection_destroy(nl_connection_t *c)
+static void nl_stream_destroy(nl_stream_t *c)
 {
     struct list_iterator_t  it;
     nl_buf_t                *buf;
@@ -244,13 +244,13 @@ static void nl_connection_destroy(nl_connection_t *c)
 static void linger_handler(nl_event_t *ev)
 {
     log_trace("linger_handler");
-    nl_connection_destroy((nl_connection_t *)ev->data);
+    nl_stream_destroy((nl_stream_t *)ev->data);
 }
 
 static void write_handler(nl_event_t *ev)
 {
     nl_socket_t         *sock;
-    nl_connection_t     *c;
+    nl_stream_t     *c;
     nl_buf_t            *buf, snd;
     int                 rc;
 
@@ -285,7 +285,7 @@ static void write_handler(nl_event_t *ev)
                 if (c->closing_ev.timer_set) {
                     nl_event_del_timer(&c->closing_ev);
                 }
-                nl_connection_close(c);
+                nl_stream_close(c);
                 return;
             }
         }
@@ -295,17 +295,17 @@ static void write_handler(nl_event_t *ev)
         nl_event_del(&c->sock.wev);
         if (c->closing_ev.timer_set) {
             nl_event_del_timer(&c->closing_ev);
-            nl_connection_close(c);
+            nl_stream_close(c);
         }
     }
 }
 
-nl_connection_t *nl_connection()
+nl_stream_t *nl_connection()
 {
     int                 rc;
-    nl_connection_t    *c;
+    nl_stream_t    *c;
 
-    c = nl_connection_create();
+    c = nl_stream_create();
     if (c == NULL) {
         return NULL;
     }
@@ -313,7 +313,7 @@ nl_connection_t *nl_connection()
     rc = nl_socket(&c->sock, NL_TCP);
     if (rc == -1) {
         c->error = 1;
-        nl_connection_close(c);
+        nl_stream_close(c);
         return NULL;
     }
 
@@ -322,7 +322,7 @@ nl_connection_t *nl_connection()
     return c;
 }
 
-int nl_connection_listen(nl_connection_t *c, nl_address_t *addr, int backlog)
+int nl_stream_listen(nl_stream_t *c, nl_address_t *addr, int backlog)
 {
     c->sock.rev.handler = accept_handler;
     c->sock.wev.handler = NULL;
@@ -332,14 +332,14 @@ int nl_connection_listen(nl_connection_t *c, nl_address_t *addr, int backlog)
     return nl_listen(&c->sock, backlog);
 }
 
-int nl_connection_connect(nl_connection_t *c, nl_address_t *addr)
+int nl_stream_connect(nl_stream_t *c, nl_address_t *addr)
 {
     c->sock.rev.handler = NULL;
     c->sock.wev.handler = connect_handler;
     return nl_connect(&c->sock, addr);
 }
 
-int nl_connection_send(nl_connection_t *c, nl_buf_t *buf)
+int nl_stream_send(nl_stream_t *c, nl_buf_t *buf)
 {
     nl_buf_t tosend;
 
@@ -363,7 +363,7 @@ int nl_connection_send(nl_connection_t *c, nl_buf_t *buf)
     return 0;
 }
 
-int nl_connection_close(nl_connection_t *c)
+int nl_stream_close(nl_stream_t *c)
 {
     int timeout;
 
@@ -392,24 +392,24 @@ int nl_connection_close(nl_connection_t *c)
     return 0;
 }
 
-void nl_connection_pause_receiving(nl_connection_t *c)
+void nl_stream_pause_receiving(nl_stream_t *c)
 {
     nl_event_del(&c->sock.rev);
 }
 
-void nl_connection_resume_receiving(nl_connection_t *c)
+void nl_stream_resume_receiving(nl_stream_t *c)
 {
     if (!c->closing_ev.timer_set && !c->sock.rev.active) {
         nl_event_add(&c->sock.rev);
     }
 }
 
-void nl_connection_pause_sending(nl_connection_t *c)
+void nl_stream_pause_sending(nl_stream_t *c)
 {
     nl_event_del(&c->sock.wev);
 }
 
-void nl_connection_resume_sending(nl_connection_t *c)
+void nl_stream_resume_sending(nl_stream_t *c)
 {
     nl_event_add(&c->sock.wev);
 }

@@ -230,13 +230,13 @@ int http_dec(obscure_t *o, const nl_buf_t *in, nl_buf_t *out)
     return 0;
 }
 
-int acc_splitter(nl_connection_t *c, const nl_buf_t *in, nl_buf_t *out)
+int acc_splitter(nl_stream_t *c, const nl_buf_t *in, nl_buf_t *out)
 {
     socket_data_t *data = c->data;
     return http_dec(data->o, in, out);
 }
 
-int con_splitter(nl_connection_t *c, const nl_buf_t *in, nl_buf_t *out)
+int con_splitter(nl_stream_t *c, const nl_buf_t *in, nl_buf_t *out)
 {
     socket_data_t *data = c->data;
     return http_dec(data->o, in, out);

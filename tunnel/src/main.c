@@ -95,17 +95,17 @@ socket_data_t *socket_data_create()
     return data;
 }
 
-void on_accepted(nl_connection_t *c, nl_connection_t *nc);
-void on_received(nl_connection_t *c, nl_buf_t *buf);
-void on_sent(nl_connection_t *c, nl_buf_t *buf);
-void on_closed(nl_connection_t *c);
+void on_accepted(nl_stream_t *c, nl_stream_t *nc);
+void on_received(nl_stream_t *c, nl_buf_t *buf);
+void on_sent(nl_stream_t *c, nl_buf_t *buf);
+void on_closed(nl_stream_t *c);
 
-void on_accepted(nl_connection_t *c, nl_connection_t *nc)
+void on_accepted(nl_stream_t *c, nl_stream_t *nc)
 {
     int                 rc;
     acceptor_data_t     *acc_data;
     socket_data_t       *svr_data, *cli_data;
-    nl_connection_t     *cc;
+    nl_stream_t     *cc;
 
     acc_data = c->data;
 
@@ -149,7 +149,7 @@ void on_accepted(nl_connection_t *c, nl_connection_t *nc)
     cli_data->peer = svr_data;
 
     if (!s_acc_obs) {
-        rc = nl_connection_connect(cc, &acc_data->remote);
+        rc = nl_stream_connect(cc, &acc_data->remote);
         if (rc < 0) {
         }
     }
@@ -161,12 +161,12 @@ void on_accepted(nl_connection_t *c, nl_connection_t *nc)
         buf.len = sizeof(id);
         log_debug("id: %d", acc_data->id);
         buf.buf = con_encode(svr_data->o, &id, &buf.len);
-        nl_connection_send(cc, &buf);
+        nl_stream_send(cc, &buf);
         cli_data->nsend += buf.len;
     }
 }
 
-void on_received(nl_connection_t *c, nl_buf_t *buf)
+void on_received(nl_stream_t *c, nl_buf_t *buf)
 {
     socket_data_t *data;
 
@@ -196,23 +196,23 @@ void on_received(nl_connection_t *c, nl_buf_t *buf)
         buf->buf += sizeof(uint16_t);
         buf->len -= sizeof(uint16_t);
 
-        rc = nl_connection_connect(data->peer->c, &s_raddrs[data->o->id].addr);
+        rc = nl_stream_connect(data->peer->c, &s_raddrs[data->o->id].addr);
         if (rc < 0) {
         }
     }
 
 #define SEND_BUFF_SIZE 16384
-    nl_connection_send(data->peer->c, buf);
+    nl_stream_send(data->peer->c, buf);
     data->peer->nsend += buf->len;
 
     if (!data->paused && data->peer->nsend > SEND_BUFF_SIZE) {
         data->paused = 1;
-        nl_connection_pause_receiving(c);
+        nl_stream_pause_receiving(c);
         log_debug("pause @ size: %zu", data->peer->nsend);
     }
 }
 
-void on_sent(nl_connection_t *c, nl_buf_t *buf)
+void on_sent(nl_stream_t *c, nl_buf_t *buf)
 {
     socket_data_t *data;
 
@@ -221,13 +221,13 @@ void on_sent(nl_connection_t *c, nl_buf_t *buf)
     if (data->nsend <= SEND_BUFF_SIZE) {
         if (data->peer && data->peer->paused) {
             data->peer->paused = 0;
-            nl_connection_resume_receiving(data->peer->c);
+            nl_stream_resume_receiving(data->peer->c);
             log_debug("resume @ size: %zu", data->nsend);
         }
     }
 }
 
-void on_closed(nl_connection_t *c)
+void on_closed(nl_stream_t *c)
 {
     socket_data_t *data, *peer;
 
@@ -237,7 +237,7 @@ void on_closed(nl_connection_t *c)
         peer = data->peer;
         peer->peer = NULL;
         data->peer = NULL;
-        nl_connection_close(peer->c);
+        nl_stream_close(peer->c);
     }
     obscure_free(data->o);
     free(data);
@@ -523,7 +523,7 @@ int main(int argc, char *argv[])
     else {
         int i;
         for (i = 0; i < s_nladdrs; i++) {
-            nl_connection_t *c;
+            nl_stream_t *c;
             acceptor_data_t *acc_data;
 
             c = nl_connection();
@@ -542,7 +542,7 @@ int main(int argc, char *argv[])
             c->cbs.on_accepted = on_accepted;
             c->data = acc_data;
 
-            rc = nl_connection_listen(c, &s_laddrs[i].addr, 10);
+            rc = nl_stream_listen(c, &s_laddrs[i].addr, 10);
             if (rc < 0) {
                 return -1;
             }
