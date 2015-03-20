@@ -9,8 +9,6 @@
 #define MSG_NOSIGNAL SO_NOSIGPIPE
 #endif
 
-// TODO: handle signal
-
 static void nl_socket_init(nl_socket_t *sock)
 {
     memset(sock, 0, sizeof(nl_socket_t));
@@ -91,16 +89,24 @@ int nl_accept(nl_socket_t *sock, nl_socket_t *nsock)
     nsock->error = 0;
     nsock->err = 0;
 
-    size = sizeof(struct sockaddr_in);
-    fd = accept(sock->fd, (struct sockaddr *)&addr, &size);
-    if (fd < 0) {
-        err = errno;
-        if (err != EAGAIN && err != EWOULDBLOCK) {
-            sock->error = 1;
-            sock->err = err;
-            log_error("#%d accept: %s", sock->fd, strerror(sock->err));
+    for ( ; ; ) {
+        size = sizeof(struct sockaddr_in);
+        fd = accept(sock->fd, (struct sockaddr *)&addr, &size);
+        if (fd < 0) {
+            err = errno;
+            if (err == ECONNABORTED) {
+                continue;
+            }
+            else if (err != EAGAIN && err != EWOULDBLOCK) {
+                sock->error = 1;
+                sock->err = err;
+                log_error("#%d accept: %s", sock->fd, strerror(sock->err));
+            }
+            return -1;
         }
-        return -1;
+        else {
+            break;
+        }
     }
 
     flags = fcntl(fd, F_GETFL, 0);
