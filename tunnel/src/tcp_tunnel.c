@@ -5,8 +5,8 @@
 
 #include <string.h>
 
-#define SEND_UPPER_BOUND (16*1024)
-#define SEND_LOWER_BOUND (8*1024)
+#define SEND_UPPER_BOUND (8*1024)
+#define SEND_LOWER_BOUND (4*1024)
 
 static void on_received(nl_stream_t *c, nl_buf_t *buf);
 static void on_sent(nl_stream_t *c, nl_buf_t *buf);
@@ -189,7 +189,7 @@ static void on_received(nl_stream_t *s, nl_buf_t *buf)
     }
 
     rc = nl_stream_pending_bytes(s);
-    if (rc > SEND_UPPER_BOUND && s == &t->front ? !t->front_paused : !t->back_paused) {
+    if (rc > SEND_UPPER_BOUND && (s == &t->front ? !t->front_paused : !t->back_paused)) {
         if (s == &t->front) {
             t->front_paused = 1;
         }
