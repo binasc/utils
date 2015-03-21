@@ -107,7 +107,7 @@ void on_accepted(nl_stream_t *s)
     if (tun_is_connect_side() && rc == 0) {
         const char *str = nl_address_tostring(&addr);
         if (str != NULL) {
-            log_info("#%d from %s", s->sock.fd, str);
+            log_info("#%d from %s", ss->sock.fd, str);
         }
     }
 
