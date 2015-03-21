@@ -18,23 +18,23 @@ static void write_handler(nl_event_t *ev);
 static void accept_handler(nl_event_t *ev)
 {
     nl_socket_t         *sock;
-    nl_stream_t         *c;
+    nl_stream_t         *s;
     int                 rc;
 
     sock = ev->data;
     log_trace("#%d accept_handler", sock->fd);
-    c = sock->data;
+    s = sock->data;
 
-    c->error = 0;
+    s->error = 0;
     for ( ; ; ) {
-        rc = nl_accept(sock, &c->accepted);
+        rc = nl_accept(sock, &s->accepted);
         if (rc == -1) {
             if (sock->error) {
-                c->error = 1;
-                nl_stream_close(c);
+                s->error = 1;
+                nl_stream_close(s);
                 break;
             }
-            else if (c->accepted.error) {
+            else if (s->accepted.error) {
                 // nothing to do
             }
             else {
@@ -42,27 +42,27 @@ static void accept_handler(nl_event_t *ev)
             }
         }
 
-        c->cbs.on_accepted(c);
+        s->cbs.on_accepted(s);
     }
 }
 
 static void connect_handler(nl_event_t *ev)
 {
     nl_socket_t *sock;
-    nl_stream_t *c;
+    nl_stream_t *s;
 
     sock = ev->data;
     log_trace("#%d connect_handler", sock->fd);
-    c = sock->data;
+    s = sock->data;
 
     if (!sock->connected || sock->error) {
-        c->error = 1;
-        nl_stream_close(c);
+        s->error = 1;
+        nl_stream_close(s);
         return;
     }
 
-    if (c->cbs.on_connected) {
-        c->cbs.on_connected(c);
+    if (s->cbs.on_connected) {
+        s->cbs.on_connected(s);
     }
     else {
         nl_event_add(&sock->rev);
@@ -70,7 +70,7 @@ static void connect_handler(nl_event_t *ev)
 
     sock->rev.handler = read_handler;
     sock->wev.handler = write_handler;
-    if (list_empty(c->tosend)) {
+    if (list_empty(s->tosend)) {
         nl_event_del(&sock->wev);
     }
 }
@@ -189,12 +189,12 @@ static void read_handler(nl_event_t *ev)
 
     int rc;
     nl_socket_t *sock;
-    nl_stream_t *c;
+    nl_stream_t *s;
 
     sock = ev->data;
     log_trace("#%d read_handler", sock->fd);
-    c = sock->data;
-    c->error = 0;
+    s = sock->data;
+    s->error = 0;
 
     for ( ; ; ) {
         rc = nl_recv(sock, s_recv_buff, RECV_BUFF_SIZE);
@@ -204,14 +204,14 @@ static void read_handler(nl_event_t *ev)
                 return;
             }
             else if (rc != 0) {
-                c->error = 1;
+                s->error = 1;
             }
             break;
         }
         else {
             rc = packet_handler(sock->data, s_recv_buff, rc);
             if (rc < 0) {
-                c->error = 1;
+                s->error = 1;
                 break;
             }
             else if (!sock->rev.active) {
@@ -220,7 +220,7 @@ static void read_handler(nl_event_t *ev)
         }
     }
 
-    nl_stream_close(c);
+    nl_stream_close(s);
 }
 
 static void nl_stream_destroy(nl_stream_t *s)
@@ -261,31 +261,31 @@ static void linger_handler(nl_event_t *ev)
 static void write_handler(nl_event_t *ev)
 {
     nl_socket_t         *sock;
-    nl_stream_t     *c;
+    nl_stream_t         *s;
     nl_buf_t            *buf, snd;
     int                 rc;
 
     sock = ev->data;
     log_trace("#%d write_handler", sock->fd);
-    c = sock->data;
-    while (!list_empty(c->tosend)) {
-        buf = (nl_buf_t *)list_front(c->tosend);
+    s = sock->data;
+    while (!list_empty(s->tosend)) {
+        buf = (nl_buf_t *)list_front(s->tosend);
         rc = nl_send(sock, buf->buf, buf->len);
         snd.buf = buf->buf;
         snd.len = rc;
         if (rc == (int)buf->len) {
             /* accurate pending bytes */
-            list_pop_front(c->tosend);
-            if (c->cbs.on_sent) {
-                c->cbs.on_sent(c, &snd);
+            list_pop_front(s->tosend);
+            if (s->cbs.on_sent) {
+                s->cbs.on_sent(s, &snd);
             }
             free(buf->buf);
         }
         else if (rc > 0 && rc < buf->len) {
             /* accurate pending bytes */
             buf->len -= rc;
-            if (c->cbs.on_sent) {
-                c->cbs.on_sent(c, &snd);
+            if (s->cbs.on_sent) {
+                s->cbs.on_sent(s, &snd);
             }
             //memmove(buf->buf, buf->buf + rc, buf->len - rc);
             memmove(buf->buf, buf->buf + rc, buf->len);
@@ -295,21 +295,21 @@ static void write_handler(nl_event_t *ev)
                 //nl_event_add(&sock->wev);
             }
             else {
-                c->error = 1;
-                if (c->closing_ev.timer_set) {
-                    nl_event_del_timer(&c->closing_ev);
+                s->error = 1;
+                if (s->closing_ev.timer_set) {
+                    nl_event_del_timer(&s->closing_ev);
                 }
-                nl_stream_close(c);
+                nl_stream_close(s);
                 return;
             }
         }
     }
 
-    if (list_empty(c->tosend)) {
-        nl_event_del(&c->sock.wev);
-        if (c->closing_ev.timer_set) {
-            nl_event_del_timer(&c->closing_ev);
-            nl_stream_close(c);
+    if (list_empty(s->tosend)) {
+        nl_event_del(&s->sock.wev);
+        if (s->closing_ev.timer_set) {
+            nl_event_del_timer(&s->closing_ev);
+            nl_stream_close(s);
         }
     }
 }
@@ -337,14 +337,14 @@ int nl_stream(nl_stream_t *s)
     return 0;
 }
 
-int nl_stream_listen(nl_stream_t *c, nl_address_t *addr, int backlog)
+int nl_stream_listen(nl_stream_t *s, nl_address_t *addr, int backlog)
 {
-    c->sock.rev.handler = accept_handler;
-    c->sock.wev.handler = NULL;
-    if (nl_bind(&c->sock, addr) < 0) {
+    s->sock.rev.handler = accept_handler;
+    s->sock.wev.handler = NULL;
+    if (nl_bind(&s->sock, addr) < 0) {
         return -1;
     }
-    return nl_listen(&c->sock, backlog);
+    return nl_listen(&s->sock, backlog);
 }
 
 int nl_stream_accept(nl_stream_t *acceptor, nl_stream_t *s)
@@ -366,11 +366,11 @@ int nl_stream_accept(nl_stream_t *acceptor, nl_stream_t *s)
     return 0;
 }
 
-int nl_stream_connect(nl_stream_t *c, nl_address_t *addr)
+int nl_stream_connect(nl_stream_t *s, nl_address_t *addr)
 {
-    c->sock.rev.handler = NULL;
-    c->sock.wev.handler = connect_handler;
-    return nl_connect(&c->sock, addr);
+    s->sock.rev.handler = NULL;
+    s->sock.wev.handler = connect_handler;
+    return nl_connect(&s->sock, addr);
 }
 
 int nl_stream_send(nl_stream_t *s, nl_buf_t *b)
@@ -409,31 +409,31 @@ int nl_stream_send(nl_stream_t *s, nl_buf_t *b)
     return len;
 }
 
-int nl_stream_close(nl_stream_t *c)
+int nl_stream_close(nl_stream_t *s)
 {
     int timeout;
 
-    if (c->closing_ev.timer_set) {
+    if (s->closing_ev.timer_set) {
         return 0;
     }
 
     timeout = 0;
-    if (!c->error && c->sock.connected && !list_empty(c->tosend) /* && linger */) {
+    if (!s->error && s->sock.connected && !list_empty(s->tosend) /* && linger */) {
         timeout = 20000;
     }
 
     if (timeout == 0) {
-        nl_event_del(&c->sock.wev);
-        log_debug("#%d closing in next loop", c->sock.fd);
+        nl_event_del(&s->sock.wev);
+        log_debug("#%d closing in next loop", s->sock.fd);
     }
     else {
-        log_debug("#%d closing in %d ms", c->sock.fd, timeout);
+        log_debug("#%d closing in %d ms", s->sock.fd, timeout);
     }
 
-    nl_event_del(&c->sock.rev);
-    c->closing_ev.handler = linger_handler;
-    c->closing_ev.data = c;
-    nl_event_add_timer(&c->closing_ev, timeout);
+    nl_event_del(&s->sock.rev);
+    s->closing_ev.handler = linger_handler;
+    s->closing_ev.data = s;
+    nl_event_add_timer(&s->closing_ev, timeout);
 
     return 0;
 }
@@ -529,8 +529,8 @@ int nl_stream_decoder_pop_back(nl_stream_t *s)
 
 size_t nl_stream_pending_bytes(nl_stream_t *s)
 {
-    size_t len;
-    nl_buf_t *buf;
+    size_t                  len;
+    nl_buf_t                *buf;
     struct list_iterator_t  it;
 
     len = 0;
@@ -544,25 +544,25 @@ size_t nl_stream_pending_bytes(nl_stream_t *s)
     return len;
 }
 
-void nl_stream_pause_receiving(nl_stream_t *c)
+void nl_stream_pause_receiving(nl_stream_t *s)
 {
-    nl_event_del(&c->sock.rev);
+    nl_event_del(&s->sock.rev);
 }
 
-void nl_stream_resume_receiving(nl_stream_t *c)
+void nl_stream_resume_receiving(nl_stream_t *s)
 {
-    if (!c->closing_ev.timer_set && !c->sock.rev.active) {
-        nl_event_add(&c->sock.rev);
+    if (!s->closing_ev.timer_set && !s->sock.rev.active) {
+        nl_event_add(&s->sock.rev);
     }
 }
 
-void nl_stream_pause_sending(nl_stream_t *c)
+void nl_stream_pause_sending(nl_stream_t *s)
 {
-    nl_event_del(&c->sock.wev);
+    nl_event_del(&s->sock.wev);
 }
 
-void nl_stream_resume_sending(nl_stream_t *c)
+void nl_stream_resume_sending(nl_stream_t *s)
 {
-    nl_event_add(&c->sock.wev);
+    nl_event_add(&s->sock.wev);
 }
 
