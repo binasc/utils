@@ -4,6 +4,7 @@
 #include <sys/socket.h>
 #include <netdb.h>
 #include <string.h>
+#include <errno.h>
 
 #include "stream.h"
 #include "log.h"
@@ -34,6 +35,10 @@ static void accept_handler(nl_event_t *ev)
                 break;
             }
             else if (c->accepted.error) {
+                // nothing to do
+            }
+            else {
+                break;
             }
         }
 
@@ -70,22 +75,22 @@ static void connect_handler(nl_event_t *ev)
     }
 }
 
-static int enlarge_buffer(nl_stream_t *c, size_t size)
+static int enlarge_buffer(nl_decoder_t *d, size_t size)
 {
     char *buf = NULL;
 
-    if (size > c->remain_size) {
-        buf = realloc(c->remain.buf, size);
+    if (size > d->remain_size) {
+        buf = realloc(d->remain.buf, size);
         if (buf == NULL) {
-            free(c->remain.buf);
-            c->remain.buf = NULL;
-            c->remain.len = 0;
-            c->remain_size = 0;
+            free(d->remain.buf);
+            d->remain.buf = NULL;
+            d->remain.len = 0;
+            d->remain_size = 0;
             return -1;
         }
         else {
-            c->remain.buf = buf;
-            c->remain_size = size;
+            d->remain.buf = buf;
+            d->remain_size = size;
             return 0;
         }
     }
@@ -93,50 +98,85 @@ static int enlarge_buffer(nl_stream_t *c, size_t size)
     return 0;
 }
 
-static int packet_handler(nl_stream_t *c, char *buf, size_t len)
+static int is_decoder_valid(nl_stream_t *s, int pos)
 {
-    nl_buf_t    in, out;
-    int         n;
+    int depth = 0;
+    nl_decoder_t *d;
 
-    if (c->remain.len == 0) {
+    d = s->decoders;
+    while (d) {
+        d = d->next;
+        depth++;
+    }
+
+    return pos < depth ? 1 : 0;
+}
+
+static int decode(nl_stream_t *s, nl_decoder_t *d, int depth, char *buf, size_t len)
+{
+    nl_buf_t        in, out;
+    int             n;
+
+    log_trace("#%d decode", s->sock.fd);
+
+    if (d->remain.len == 0) {
         in.buf = buf;
         in.len = len;
     }
     else {
-        if (enlarge_buffer(c, c->remain.len + len) < 0) {
+        if (enlarge_buffer(d, d->remain.len + len) < 0) {
             return -1;
         }
-        memcpy(c->remain.buf + c->remain.len, buf, len);
-        c->remain.len += len;
-        in = c->remain;
+        memcpy(d->remain.buf + d->remain.len, buf, len);
+        d->remain.len += len;
+        in = d->remain;
     }
 
-    if (c->cbs.splitter != NULL) {
-        while ((n = c->cbs.splitter(c, &in, &out)) > 0) {
-            in.buf += n;
-            in.len -= n;
-            if (out.len > 0) {
-                c->cbs.on_received(c, &out);
+    while ((n = d->decoder(d->data, &in, &out)) > 0) {
+        in.buf += n;
+        in.len -= n;
+        if (out.len > 0) {
+            if (d->next == NULL) {
+                s->cbs.on_received(s, &out);
+            }
+            else {
+                if (decode(s, d->next, depth + 1, out.buf, out.len) < 0) {
+                    return -1;
+                }
             }
         }
-        if (n < 0) {
+        if (!is_decoder_valid(s, depth)) {
+            out = in;
+            s->cbs.on_received(s, &out);
+            return 0;
+        }
+    }
+    if (n < 0) {
+        return -1;
+    }
+
+    if (in.len > 0) {
+        if (enlarge_buffer(d, in.len) < 0) {
+            return -1;
+        }
+        memmove(d->remain.buf, in.buf, in.len);
+    }
+    d->remain.len = in.len;
+
+    return 0;
+}
+
+static int packet_handler(nl_stream_t *s, char *buf, size_t len)
+{
+    if (s->decoders != NULL) {
+        if (decode(s, s->decoders, 0, buf, len) < 0) {
             return -1;
         }
     }
     else {
-        out = in;
-        in.buf += in.len;
-        in.len = 0;
-        c->cbs.on_received(c, &out);
+        nl_buf_t b = { buf, len };
+        s->cbs.on_received(s, &b);
     }
-
-    if (in.len > 0) {
-        if (enlarge_buffer(c, in.len) < 0) {
-            return -1;
-        }
-        memmove(c->remain.buf, in.buf, in.len);
-    }
-    c->remain.len = in.len;
 
     return 0;
 }
@@ -183,38 +223,38 @@ static void read_handler(nl_event_t *ev)
     nl_stream_close(c);
 }
 
-static void nl_stream_destroy(nl_stream_t *c)
+static void nl_stream_destroy(nl_stream_t *s)
 {
     struct list_iterator_t  it;
     nl_buf_t                *buf;
 
-    for (it = list_begin(c->tosend);
-         !list_iterator_equal(list_end(c->tosend), it);
+    for (it = list_begin(s->tosend);
+         !list_iterator_equal(list_end(s->tosend), it);
          it = list_iterator_next(it)) {
         buf = list_iterator_item(it);
         free(buf->buf);
     }
-    list_destroy(c->tosend);
+    list_destroy(s->tosend);
 
-    if (c->remain.buf != NULL) {
-        free(c->remain.buf);
-        c->remain.buf = NULL;
-        c->remain.len = 0;
-        c->remain_size = 0;
+    while (s->encoders != NULL) {
+        nl_stream_encoder_pop_back(s);
+    }
+    while (s->decoders != NULL) {
+        nl_stream_decoder_pop_back(s);
     }
 
-    log_debug("#%d destroyed", c->sock.fd);
+    log_debug("#%d destroyed", s->sock.fd);
 
-    nl_close(&c->sock);
+    nl_close(&s->sock);
 
-    if (c->cbs.on_closed != NULL) {
-        c->cbs.on_closed(c);
+    if (s->cbs.on_closed != NULL) {
+        s->cbs.on_closed(s);
     }
 }
 
 static void linger_handler(nl_event_t *ev)
 {
-    log_trace("linger_handler");
+    log_trace("#- linger_handler");
     nl_stream_destroy((nl_stream_t *)ev->data);
 }
 
@@ -330,28 +370,40 @@ int nl_stream_connect(nl_stream_t *c, nl_address_t *addr)
     return nl_connect(&c->sock, addr);
 }
 
-int nl_stream_send(nl_stream_t *c, nl_buf_t *buf)
+int nl_stream_send(nl_stream_t *s, nl_buf_t *b)
 {
+    char *buf;
+    size_t len;
+    nl_encoder_t *e;
     nl_buf_t tosend;
 
-    if (c->closing_ev.timer_set) {
+    if (s->closing_ev.timer_set) {
         return -1;
     }
 
-    tosend.buf = malloc(buf->len);
+    buf = b->buf;
+    len = b->len;
+    for (e = s->encoders; e != NULL; e = e->next) {
+        buf = e->encoder(e->data, buf, &len);
+        if (buf == NULL) {
+            return -1;
+        }
+    }
+
+    tosend.buf = malloc(len);
     if (tosend.buf == NULL) {
         return -1;
     }
-    memcpy(tosend.buf, buf->buf, buf->len);
-    tosend.len = buf->len;
+    memcpy(tosend.buf, buf, len);
+    tosend.len = len;
 
-    if (c->sock.connected && list_empty(c->tosend)) {
-        nl_event_add(&c->sock.wev);
+    if (s->sock.connected && list_empty(s->tosend)) {
+        nl_event_add(&s->sock.wev);
     }
 
-    list_push_back(c->tosend, &tosend);
+    list_push_back(s->tosend, &tosend);
 
-    return 0;
+    return len;
 }
 
 int nl_stream_close(nl_stream_t *c)
@@ -381,6 +433,112 @@ int nl_stream_close(nl_stream_t *c)
     nl_event_add_timer(&c->closing_ev, timeout);
 
     return 0;
+}
+
+int nl_stream_encoder_push_back(nl_stream_t *s, nl_encoder_fn enc, void *data)
+{
+    nl_encoder_t **pe, *ne;
+
+    ne = calloc(1, sizeof(nl_encoder_t));
+    if (ne == NULL) {
+        log_error("#%d malloc failed", s->sock.fd);
+        return -1;
+    }
+
+    pe = &s->encoders;
+    while (*pe) {
+        pe = &(*pe)->next;
+    }
+
+    ne->encoder = enc;
+    ne->data = data;
+    *pe = ne;
+
+    return 0;
+}
+
+int nl_stream_encoder_pop_back(nl_stream_t *s)
+{
+    nl_encoder_t **pe;
+
+    if (s->encoders == NULL) {
+        return -1;
+    }
+
+    pe = &s->encoders;
+    while ((*pe)->next) {
+        pe = &(*pe)->next;
+    }
+
+    free(*pe);
+    *pe = NULL;
+
+    return 0;
+}
+
+int nl_stream_decoder_push_back(nl_stream_t *s, nl_decoder_fn dec, void *data)
+{
+    nl_decoder_t **pd, *nd;
+
+    nd = calloc(1, sizeof(nl_decoder_t));
+    if (nd == NULL) {
+        log_error("#%d malloc failed", s->sock.fd);
+        return -1;
+    }
+
+    pd = &s->decoders;
+    while (*pd) {
+        pd = &(*pd)->next;
+    }
+
+    nd->decoder = dec;
+    nd->data = data;
+    *pd = nd;
+
+    return 0;
+}
+
+int nl_stream_decoder_pop_back(nl_stream_t *s)
+{
+    nl_decoder_t **pd, *d;
+
+    if (s->decoders == NULL) {
+        return -1;
+    }
+
+    pd = &s->decoders;
+    while ((*pd)->next) {
+        pd = &(*pd)->next;
+    }
+
+    d = *pd;
+    if (d->remain.buf != NULL) {
+        free(d->remain.buf);
+        d->remain.buf = NULL;
+        d->remain.len = 0;
+        d->remain_size = 0;
+    }
+    free(d);
+    *pd = NULL;
+
+    return 0;
+}
+
+size_t nl_stream_pending_bytes(nl_stream_t *s)
+{
+    size_t len;
+    nl_buf_t *buf;
+    struct list_iterator_t  it;
+
+    len = 0;
+    for (it = list_begin(s->tosend);
+         !list_iterator_equal(list_end(s->tosend), it);
+         it = list_iterator_next(it)) {
+        buf = list_iterator_item(it);
+        len += buf->len;
+    }
+
+    return len;
 }
 
 void nl_stream_pause_receiving(nl_stream_t *c)

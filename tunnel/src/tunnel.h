@@ -1,27 +1,27 @@
 #ifndef __TUNNEL_H__
 #define __TUNNEL_H__
 
-#define ACCEPT_SIDE 0
-#define CONNECT_SIDE 1
-
 #include "stream.h"
 #include "dgram.h"
+#include "obscure.h"
 
 typedef struct acceptor_data_s
 {
-    uint16_t                id;
-    nl_address_t            remote;
+    nl_address_t            *from;
+    nl_address_t            *via;
+    nl_address_t            *to;
 } acceptor_data_t;
 
-typedef struct socket_data_s
+typedef struct stream_data_s
 {
-    struct socket_data_s    *peer;
+    struct stream_data_s    *peer;
     nl_stream_t             s;
-    obscure_t               *o;
+    obscure_t               *oe;
+    obscure_t               *od;
     size_t                  nsend;
-    unsigned                side :1;
+    unsigned                front :1; /* 0 == back */
     unsigned                paused: 1;
-} socket_data_t;
+} stream_data_t;
 
 typedef struct datagram_data_s
 {

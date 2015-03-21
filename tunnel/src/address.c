@@ -21,6 +21,16 @@ int nl_address_setport(nl_address_t *addr, uint16_t port)
     return 0;
 }
 
+const char *nl_address_getname(nl_address_t *addr)
+{
+    return addr->name;
+}
+
+uint16_t nl_address_getport(nl_address_t *addr)
+{
+    return addr->port;
+}
+
 int nl_address_setinet4addr(nl_address_t *addr, struct sockaddr_in *in)
 {
     addr->name = NULL;
@@ -40,7 +50,7 @@ int nl_address_getinet4addr(nl_address_t *addr, struct sockaddr_in *in)
         if (rc == -1) {
             return -1;
         }
-        in->sin_port = addr->port;
+        in->sin_port = htons(addr->port);
     }
     else {
         memcpy(in, &addr->inet4, sizeof(addr->inet4));

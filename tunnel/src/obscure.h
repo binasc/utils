@@ -10,19 +10,16 @@ typedef struct obscure_s
     size_t      to_recv_size;
     size_t      to_send_size;
     int         last_key;
-    int         id;
 } obscure_t;
 
 obscure_t *obscure_new();
 void obscure_free(obscure_t *o);
 
-int acc_splitter(nl_stream_t *c, const nl_buf_t *in, nl_buf_t *out);
-int con_splitter(nl_stream_t *c, const nl_buf_t *in, nl_buf_t *out);
+int acc_splitter(void *, const nl_buf_t *in, nl_buf_t *out);
+int con_splitter(void *, const nl_buf_t *in, nl_buf_t *out);
 
-void *acc_encode(obscure_t *o, void *buf, size_t *len);
-void *con_encode(obscure_t *o, void *buf, size_t *len);
-void *acc_decode(obscure_t *o, void *buf, size_t *len);
-void *con_decode(obscure_t *o, void *buf, size_t *len);
+char *acc_encode(void *, char *buf, size_t *len);
+char *con_encode(void *, char *buf, size_t *len);
 
 typedef struct udp_obscure_s
 {

@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include <string.h>
 #include "obscure.h"
-#include "tunnel.h"
 #include "sha1sum.h"
 #include "log.h"
 
@@ -33,7 +32,6 @@ obscure_t *obscure_new()
     obscure_t *o;
 
     o = calloc(1, sizeof(obscure_t));
-    o->id = -1;
     return o;
 }
 
@@ -52,9 +50,9 @@ char *xor(obscure_t *o, char *buf, size_t *len)
     size_t i;
     for (i = 0; i < *len; i++) {
         buf[i] = ~buf[i];
-        buf[i] ^= s_key[(o->last_key++) % 4];
+        buf[i] ^= s_key[o->last_key];
+        o->last_key = (o->last_key + 1) % 4;
     }
-    o->last_key %= 4;
 
     return buf;
 }
@@ -230,41 +228,49 @@ int http_dec(obscure_t *o, const nl_buf_t *in, nl_buf_t *out)
     return 0;
 }
 
-int acc_splitter(nl_stream_t *c, const nl_buf_t *in, nl_buf_t *out)
+int acc_splitter(void *data, const nl_buf_t *in, nl_buf_t *out)
 {
-    socket_data_t *data = c->data;
-    return http_dec(data->o, in, out);
+    int rc;
+    obscure_t *o;
+
+    o = data;
+    rc = http_dec(o, in, out);
+    if (rc > 0) {
+        out->buf = xor(o, out->buf, &out->len);
+    }
+    return rc;
 }
 
-int con_splitter(nl_stream_t *c, const nl_buf_t *in, nl_buf_t *out)
+int con_splitter(void *data, const nl_buf_t *in, nl_buf_t *out)
 {
-    socket_data_t *data = c->data;
-    return http_dec(data->o, in, out);
+    int rc;
+    obscure_t *o;
+
+    o = data;
+    rc = http_dec(o, in, out);
+    if (rc > 0) {
+        out->buf = xor(o, out->buf, &out->len);
+    }
+    return rc;
 }
 
-void *acc_encode(obscure_t *o, void *buf, size_t *len)
+char *acc_encode(void *data, char *buf, size_t *len)
 {
+    obscure_t *o;
+
+    o = data;
     buf = xor(o, buf, len);
     buf = http_enc(o, http_resp, sizeof(http_resp) - 1, buf, len);
     return buf;
 }
 
-void *con_encode(obscure_t *o, void *buf, size_t *len)
+char *con_encode(void *data, char *buf, size_t *len)
 {
+    obscure_t *o;
+
+    o = data;
     buf = xor(o, buf, len);
     buf = http_enc(o, http_post, sizeof(http_post) - 1, buf, len);
-    return buf;
-}
-
-void *acc_decode(obscure_t *o, void *buf, size_t *len)
-{
-    buf = xor(o, buf, len);
-    return buf;
-}
-
-void *con_decode(obscure_t *o, void *buf, size_t *len)
-{
-    buf = xor(o, buf, len);
     return buf;
 }
 

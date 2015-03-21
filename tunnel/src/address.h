@@ -22,6 +22,9 @@ typedef struct nl_address_s
 int nl_address_setname(nl_address_t *addr, const char *name);
 int nl_address_setport(nl_address_t *addr, uint16_t port);
 
+const char *nl_address_getname(nl_address_t *addr);
+uint16_t nl_address_getport(nl_address_t *addr);
+
 int nl_address_setinet4addr(nl_address_t *addr, struct sockaddr_in *in);
 int nl_address_getinet4addr(nl_address_t *addr, struct sockaddr_in *in);
 

@@ -1,6 +1,6 @@
 INC := -Isrc -I../utils/inc
 CFLAGS := -Werror -Wall -O0 -g -MMD -MP $(INC)
-LDLIBS := -L../utils/lib -lutils -lstdc++
+LDLIBS := 
 SRC_DIR := src/
 OBJ_DIR := obj/
 BIN_DIR := bin/
