@@ -27,15 +27,12 @@ static char *enlarge_buffer(obscure_t *o, size_t size)
     return o->remain.buf;
 }
 
-obscure_t *obscure_new()
+void obscure_create(obscure_t *o)
 {
-    obscure_t *o;
-
-    o = calloc(1, sizeof(obscure_t));
-    return o;
+    memset(o, 0, sizeof(obscure_t));
 }
 
-void obscure_free(obscure_t *o)
+void obscure_destroy(obscure_t *o)
 {
     if (o->remain_size > 0) {
         free(o->remain.buf);
@@ -45,13 +42,13 @@ void obscure_free(obscure_t *o)
 
 static unsigned char s_key[4] = { 0x4a, 0x3f, 0xbc, 0x70 };
 
-char *xor(obscure_t *o, char *buf, size_t *len)
+char *xor(unsigned *last_key, char *buf, size_t *len)
 {
     size_t i;
     for (i = 0; i < *len; i++) {
         buf[i] = ~buf[i];
-        buf[i] ^= s_key[o->last_key];
-        o->last_key = (o->last_key + 1) % 4;
+        buf[i] ^= s_key[*last_key];
+        *last_key = (*last_key + 1) % 4;
     }
 
     return buf;
@@ -236,7 +233,7 @@ int acc_splitter(void *data, const nl_buf_t *in, nl_buf_t *out)
     o = data;
     rc = http_dec(o, in, out);
     if (rc > 0) {
-        out->buf = xor(o, out->buf, &out->len);
+        out->buf = xor(&o->dec_last_key, out->buf, &out->len);
     }
     return rc;
 }
@@ -249,7 +246,7 @@ int con_splitter(void *data, const nl_buf_t *in, nl_buf_t *out)
     o = data;
     rc = http_dec(o, in, out);
     if (rc > 0) {
-        out->buf = xor(o, out->buf, &out->len);
+        out->buf = xor(&o->dec_last_key, out->buf, &out->len);
     }
     return rc;
 }
@@ -259,7 +256,7 @@ char *acc_encode(void *data, char *buf, size_t *len)
     obscure_t *o;
 
     o = data;
-    buf = xor(o, buf, len);
+    buf = xor(&o->enc_last_key, buf, len);
     buf = http_enc(o, http_resp, sizeof(http_resp) - 1, buf, len);
     return buf;
 }
@@ -269,7 +266,7 @@ char *con_encode(void *data, char *buf, size_t *len)
     obscure_t *o;
 
     o = data;
-    buf = xor(o, buf, len);
+    buf = xor(&o->enc_last_key, buf, len);
     buf = http_enc(o, http_post, sizeof(http_post) - 1, buf, len);
     return buf;
 }

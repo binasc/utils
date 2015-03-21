@@ -12,27 +12,30 @@ typedef struct acceptor_data_s
     nl_address_t            *to;
 } acceptor_data_t;
 
-typedef struct stream_data_s
+typedef struct stream_tunnel_s
 {
-    struct stream_data_s    *peer;
-    nl_stream_t             s;
-    obscure_t               *oe;
-    obscure_t               *od;
-    size_t                  nsend;
-    unsigned                front :1; /* 0 == back */
-    unsigned                paused: 1;
-} stream_data_t;
+    nl_stream_t             front;
+    nl_stream_t             back;
 
-typedef struct datagram_data_s
+    obscure_t               o;
+
+    unsigned                front_closed :1;
+    unsigned                back_closed :1;
+    unsigned                front_paused: 1;
+    unsigned                back_paused: 1;
+} stream_tunnel_t;
+
+typedef struct dgram_tunnel_s
 {
     struct sockaddr_in      peer;
     nl_dgram_t              d;
     nl_dgram_t              *acceptor;
-    struct datagram_data_s  *next;
     udp_obscure_t           acc_o;
     udp_obscure_t           con_o;
     nl_event_t              timeout;
-} datagram_data_t;
+
+    struct dgram_tunnel_s   *next;
+} dgram_tunnel_t;
 
 #endif
 

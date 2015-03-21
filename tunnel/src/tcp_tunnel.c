@@ -9,28 +9,18 @@ static void on_received(nl_stream_t *c, nl_buf_t *buf);
 static void on_sent(nl_stream_t *c, nl_buf_t *buf);
 static void on_closed(nl_stream_t *c);
 
-static stream_data_t *socket_data_create()
+static stream_tunnel_t *stream_tunnel_create()
 {
-    stream_data_t *data;
+    stream_tunnel_t *t;
 
-    data = calloc(1, sizeof(stream_data_t));
-    if (data == NULL) {
+    t = calloc(1, sizeof(stream_tunnel_t));
+    if (t == NULL) {
         return NULL;
     }
 
-    data->oe = obscure_new();
-    if (data->oe == NULL) {
-        free(data);
-        return NULL;
-    }
+    obscure_create(&t->o);
 
-    data->od = obscure_new();
-    if (data->od == NULL) {
-        free(data);
-        return NULL;
-    }
-
-    return data;
+    return t;
 }
 
 static int front_splitter(void *data, const nl_buf_t *in, nl_buf_t *out)
@@ -55,14 +45,14 @@ static int front_splitter(void *data, const nl_buf_t *in, nl_buf_t *out)
 static void front_connector(nl_stream_t *s, nl_buf_t *buf)
 {
     int rc;
-    stream_data_t *data;
+    stream_tunnel_t *t;
     nl_address_t addr;
 
     uint16_t port;
     uint8_t name_len;
     char name[256];
 
-    data = s->data;
+    t = s->data;
 
     port = ntohs(*(uint16_t *)buf->buf);
     name_len = *(uint8_t *)(buf->buf + sizeof(port));
@@ -75,7 +65,7 @@ static void front_connector(nl_stream_t *s, nl_buf_t *buf)
 
     log_debug("#%d ready to connect to %s:%u", s->sock.fd, name, (unsigned)port);
 
-    rc = nl_stream_connect(&data->peer->s, &addr);
+    rc = nl_stream_connect(&t->back, &addr);
     if (rc < 0) {
         // TODO:
     }
@@ -88,7 +78,7 @@ void on_accepted(nl_stream_t *s)
 {
     int                 rc;
     acceptor_data_t     *acc_data;
-    stream_data_t       *svr_data, *cli_data;
+    stream_tunnel_t     *t;
     nl_stream_t         *ss, *cs;
 
     log_trace("#%d on_accepted", s->sock.fd);
@@ -96,59 +86,50 @@ void on_accepted(nl_stream_t *s)
     acc_data = s->data;
 
     /* front side */
-    svr_data =  socket_data_create();
-    if (svr_data == NULL) {
+    t = stream_tunnel_create();
+    if (t == NULL) {
         //TODO:
     }
-    svr_data->front = 1;
-    ss = &svr_data->s;
+    ss = &t->front;
 
     rc = nl_stream_accept(s, ss);
     if (rc == -1) {
         //TODO:
     }
-    ss->data = svr_data;
+    ss->data = t;
 
     ss->cbs.on_received = on_received;
     ss->cbs.on_sent = on_sent;
     ss->cbs.on_closed = on_closed;
     if (tun_is_accept_side()) {
         if (tun_need_obscure()) {
-            nl_stream_encoder_push_back(ss, acc_encode, svr_data->oe);
-            nl_stream_decoder_push_back(ss, acc_splitter, svr_data->od);
+            nl_stream_encoder_push_back(ss, acc_encode, &t->o);
+            nl_stream_decoder_push_back(ss, acc_splitter, &t->o);
         }
         nl_stream_decoder_push_back(ss, front_splitter, NULL);
-        svr_data->s.cbs.on_received = front_connector;
+        ss->cbs.on_received = front_connector;
     }
 
-    nl_event_add(&svr_data->s.sock.rev);
+    nl_event_add(&ss->sock.rev);
 
     /* back side */
-    cli_data = socket_data_create();
-    if (cli_data == NULL) {
-        //TODO:
-    }
-    cli_data->front = 0;
-    cs = &cli_data->s;
+    cs = &t->back;
 
     rc = nl_stream(cs);
     if (rc == -1) {
         //TODO:
     }
-    cs->data = cli_data;
+    cs->data = t;
 
     cs->cbs.on_received = on_received;
     cs->cbs.on_sent = on_sent;
     cs->cbs.on_closed = on_closed;
     if (tun_is_connect_side()) {
         if (tun_need_obscure()) {
-            nl_stream_encoder_push_back(cs, con_encode, cli_data->oe);
-            nl_stream_decoder_push_back(cs, con_splitter, cli_data->od);
+            nl_stream_encoder_push_back(cs, con_encode, &t->o);
+            nl_stream_decoder_push_back(cs, con_splitter, &t->o);
         }
     }
-
-    svr_data->peer = cli_data;
-    cli_data->peer = svr_data;
 
     /* done */
 
@@ -184,64 +165,77 @@ void on_accepted(nl_stream_t *s)
         if (rc < 0) {
             // TODO:
         }
-        cli_data->nsend += rc;
     }
 }
 
-static void on_received(nl_stream_t *c, nl_buf_t *buf)
+static void on_received(nl_stream_t *s, nl_buf_t *buf)
 {
     int rc;
-    stream_data_t *data;
+    stream_tunnel_t *t;
 
-    log_trace("#%d on_received", c->sock.fd);
+    log_trace("#%d on_received", s->sock.fd);
 
-    data = c->data;
-    if (data->peer == NULL) {
+    t = s->data;
+    if (s == &t->front ? t->back_closed : t->front_closed) {
         return;
     }
 
-    rc = nl_stream_send(&data->peer->s, buf);
+    rc = nl_stream_send(s == &t->front ? &t->back : &t->front, buf);
     if (rc < 0) {
         // TODO:
     }
-    data->peer->nsend += rc;
 
-    if (!data->paused && data->peer->nsend > 0) {
-        data->paused = 1;
-        nl_stream_pause_receiving(c);
-        log_debug("pause @ size: %zu", data->peer->nsend);
+    if (rc > 0 && s == &t->front ? !t->front_paused : !t->back_paused) {
+        if (s == &t->front) {
+            t->front_paused = 1;
+        }
+        else {
+            t->back_paused = 1;
+        }
+        nl_stream_pause_receiving(s);
+        log_debug("#%d paused", s->sock.fd);
     }
 }
 
-static void on_sent(nl_stream_t *c, nl_buf_t *buf)
+static void on_sent(nl_stream_t *s, nl_buf_t *buf)
 {
-    stream_data_t *data;
+    stream_tunnel_t *t;
 
-    data = c->data;
-    data->nsend -= buf->len;
-    if (data->nsend == 0) {
-        if (data->peer && data->peer->paused) {
-            data->peer->paused = 0;
-            nl_stream_resume_receiving(&data->peer->s);
-            log_debug("resume @ size: %zu", data->nsend);
+    if (nl_stream_pending_bytes(s) == 0) {
+        t = s->data;
+        if (s == &t->front ? !t->back_closed && t->back_paused: !t->front_closed && t->front_paused) {
+            if (s == &t->front) {
+                t->back_paused = 0;
+            }
+            else {
+                t->front_paused = 0;
+            }
+            nl_stream_resume_receiving(s == &t->front ? &t->back : &t->front);
+            log_debug("#%d resume", s == &t->front ? t->back.sock.fd : t->front.sock.fd);
         }
     }
 }
 
-static void on_closed(nl_stream_t *c)
+static void on_closed(nl_stream_t *s)
 {
-    stream_data_t *data, *peer;
+    stream_tunnel_t *t;
 
-    data = c->data;
+    t = s->data;
 
-    if (data->peer != NULL) {
-        peer = data->peer;
-        peer->peer = NULL;
-        data->peer = NULL;
-        nl_stream_close(&peer->s);
+    if (s == &t->front) {
+        t->front_closed = 1;
     }
-    obscure_free(data->oe);
-    obscure_free(data->od);
-    free(data);
+    else {
+        t->back_closed = 1;
+    }
+
+    if (!(s == &t->front ? t->back_closed : t->front_closed)) {
+        nl_stream_close(s == &t->front ? &t->back : &t->front);
+    }
+    else {
+        /* both front & back has been closed */
+        obscure_destroy(&t->o);
+        free(t);
+    }
 }
 

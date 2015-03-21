@@ -9,11 +9,12 @@ typedef struct obscure_s
     size_t      remain_size;
     size_t      to_recv_size;
     size_t      to_send_size;
-    int         last_key;
+    unsigned    enc_last_key;
+    unsigned    dec_last_key;
 } obscure_t;
 
-obscure_t *obscure_new();
-void obscure_free(obscure_t *o);
+void obscure_create(obscure_t *o);
+void obscure_destroy(obscure_t *o);
 
 int acc_splitter(void *, const nl_buf_t *in, nl_buf_t *out);
 int con_splitter(void *, const nl_buf_t *in, nl_buf_t *out);

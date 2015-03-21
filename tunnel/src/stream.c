@@ -274,18 +274,21 @@ static void write_handler(nl_event_t *ev)
         snd.buf = buf->buf;
         snd.len = rc;
         if (rc == (int)buf->len) {
+            /* accurate pending bytes */
+            list_pop_front(c->tosend);
             if (c->cbs.on_sent) {
                 c->cbs.on_sent(c, &snd);
             }
             free(buf->buf);
-            list_pop_front(c->tosend);
         }
         else if (rc > 0 && rc < buf->len) {
+            /* accurate pending bytes */
+            buf->len -= rc;
             if (c->cbs.on_sent) {
                 c->cbs.on_sent(c, &snd);
             }
-            memmove(buf->buf, buf->buf + rc, buf->len - rc);
-            buf->len -= rc;
+            //memmove(buf->buf, buf->buf + rc, buf->len - rc);
+            memmove(buf->buf, buf->buf + rc, buf->len);
         }
         else {
             if (rc == -1 && !sock->error) {
