@@ -5,6 +5,9 @@
 
 #include <string.h>
 
+#define SEND_UPPER_BOUND (16*1024)
+#define SEND_LOWER_BOUND (8*1024)
+
 static void on_received(nl_stream_t *c, nl_buf_t *buf);
 static void on_sent(nl_stream_t *c, nl_buf_t *buf);
 static void on_closed(nl_stream_t *c);
@@ -185,7 +188,8 @@ static void on_received(nl_stream_t *s, nl_buf_t *buf)
         // TODO:
     }
 
-    if (rc > 0 && s == &t->front ? !t->front_paused : !t->back_paused) {
+    rc = nl_stream_pending_bytes(s);
+    if (rc > SEND_UPPER_BOUND && s == &t->front ? !t->front_paused : !t->back_paused) {
         if (s == &t->front) {
             t->front_paused = 1;
         }
@@ -193,15 +197,17 @@ static void on_received(nl_stream_t *s, nl_buf_t *buf)
             t->back_paused = 1;
         }
         nl_stream_pause_receiving(s);
-        log_debug("#%d paused", s->sock.fd);
+        log_debug("#%d paused @ %d", s->sock.fd, rc);
     }
 }
 
 static void on_sent(nl_stream_t *s, nl_buf_t *buf)
 {
+    int rc;
     stream_tunnel_t *t;
 
-    if (nl_stream_pending_bytes(s) == 0) {
+    rc = nl_stream_pending_bytes(s);
+    if (rc < SEND_LOWER_BOUND) {
         t = s->data;
         if (s == &t->front ? !t->back_closed && t->back_paused: !t->front_closed && t->front_paused) {
             if (s == &t->front) {
@@ -211,7 +217,7 @@ static void on_sent(nl_stream_t *s, nl_buf_t *buf)
                 t->front_paused = 0;
             }
             nl_stream_resume_receiving(s == &t->front ? &t->back : &t->front);
-            log_debug("#%d resume", s == &t->front ? t->back.sock.fd : t->front.sock.fd);
+            log_debug("#%d resume @ %d", s == &t->front ? t->back.sock.fd : t->front.sock.fd, rc);
         }
     }
 }
