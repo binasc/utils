@@ -84,18 +84,12 @@ static int parse_address(char *arg)
             }
             arg = end + 1;
 
-            end = strchr(strchr(arg, ':') + 1, ':');
-            if (end != NULL) {
-                if (ending) {
-                    return -1;
-                }
-                *end = 0;
-            }
             rc = parse_hostport(arg, &s_address[s_naddress].to);
             if (rc == -1) {
                 return -1;
             }
-            arg = end + 1;
+            arg = arg + strlen(arg) + 1;
+            arg = arg + strlen(arg) + 1;
         }
         s_naddress++;
         if (ending) {
