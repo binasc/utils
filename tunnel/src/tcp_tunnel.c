@@ -224,7 +224,8 @@ static void on_connected(nl_stream_t *s)
 
     timersub(&end, &t->begin, &cost);
 
-    log_info("#%d connect cose: %d.%ds", s->sock.fd, (int)cost.tv_sec, (int)(cost.tv_usec / 100000));
+    log_info("#%d connect cost: %d.%ds", s->sock.fd, (int)cost.tv_sec, (int)(cost.tv_usec / 100000));
+    nl_event_add(&s->sock.rev);
 }
 
 static void on_sent(nl_stream_t *s, nl_buf_t *buf)
