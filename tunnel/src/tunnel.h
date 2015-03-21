@@ -23,6 +23,8 @@ typedef struct stream_tunnel_s
     unsigned                back_closed :1;
     unsigned                front_paused: 1;
     unsigned                back_paused: 1;
+
+    struct timeval          begin;
 } stream_tunnel_t;
 
 typedef struct dgram_tunnel_s

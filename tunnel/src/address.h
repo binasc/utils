@@ -31,5 +31,7 @@ int nl_address_getinet4addr(nl_address_t *addr, struct sockaddr_in *in);
 int nl_address_setsockaddr(nl_address_t *addr, struct sockaddr *saddr);
 int nl_address_getsockaddr(nl_address_t *addr, struct sockaddr *saddr);
 
+const char *nl_address_tostring(nl_address_t *addr);
+
 #endif
 

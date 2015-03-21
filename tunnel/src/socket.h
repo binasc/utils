@@ -38,5 +38,8 @@ int nl_close(nl_socket_t *sock);
 
 void nl_socket_copy(nl_socket_t *dst, nl_socket_t *src);
 
+int nl_socket_getsockname(nl_socket_t *s, nl_address_t *addr);
+int nl_socket_getpeername(nl_socket_t *s, nl_address_t *addr);
+
 #endif
 

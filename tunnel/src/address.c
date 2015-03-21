@@ -69,7 +69,7 @@ int nl_address_setsockaddr(nl_address_t *addr, struct sockaddr *saddr)
         return nl_address_setinet4addr(addr, (struct sockaddr_in *)saddr);
         break;
     default:
-        log_error("unsupported address family: %d", addr->af);
+        log_error("nl_address_setsockaddr: unsupported address family: %d", addr->af);
         return -1;
     }
 }
@@ -85,7 +85,7 @@ int nl_address_getsockaddr(nl_address_t *addr, struct sockaddr *saddr)
     case AF_INET:
         return nl_address_getinet4addr(addr, (struct sockaddr_in *)saddr);
     default:
-        log_error("unsupported address family: %d", addr->af);
+        log_error("nl_address_getsockaddr: unsupported address family: %d", addr->af);
         return -1;
     }
 
@@ -124,5 +124,46 @@ int nl_resolve(const char *name, struct sockaddr *addr)
     freeaddrinfo(result);
     log_error("cann't resolve %s", name);
     return -1;
+}
+
+static int inet46_ntop(struct sockaddr *addr, char *dst)
+{
+    if (addr->sa_family == AF_INET) {
+        struct sockaddr_in *in = (struct sockaddr_in *)addr;
+        if (inet_ntop(AF_INET, &in->sin_addr, dst, INET_ADDRSTRLEN) == NULL) {
+            return -1;
+        }
+        sprintf(dst, "%s:%d", dst, ntohs(in->sin_port));
+
+        return 0;
+    }
+    else if (addr->sa_family == AF_INET6) {
+        struct sockaddr_in6 *in6 = (struct sockaddr_in6 *)addr;
+        if (inet_ntop(AF_INET6, &in6->sin6_addr, dst, INET6_ADDRSTRLEN) == NULL) {
+            return -1;
+        }
+        sprintf(dst, "%s:%d", dst, ntohs(in6->sin6_port));
+
+        return 0;
+    }
+
+    return -1;
+}
+
+const char *nl_address_tostring(nl_address_t *addr)
+{
+    // TODO:
+    static char straddr[INET6_ADDRSTRLEN + 6];
+    static struct sockaddr saddr;
+
+    if (nl_address_getsockaddr(addr, &saddr) < 0) {
+        return NULL;
+    }
+
+    if (inet46_ntop(&saddr, straddr) == -1) {
+        return NULL;
+    }
+
+    return straddr;
 }
 

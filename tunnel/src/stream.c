@@ -168,6 +168,8 @@ static int decode(nl_stream_t *s, nl_decoder_t *d, int depth, char *buf, size_t 
 
 static int packet_handler(nl_stream_t *s, char *buf, size_t len)
 {
+    log_trace("#%d packet_handler", s->sock.fd);
+
     if (s->decoders != NULL) {
         if (decode(s, s->decoders, 0, buf, len) < 0) {
             return -1;
@@ -194,8 +196,8 @@ static void read_handler(nl_event_t *ev)
     sock = ev->data;
     log_trace("#%d read_handler", sock->fd);
     s = sock->data;
-    s->error = 0;
 
+    s->error = 0;
     for ( ; ; ) {
         rc = nl_recv(sock, s_recv_buff, RECV_BUFF_SIZE);
         if (rc <= 0) {
@@ -243,7 +245,7 @@ static void nl_stream_destroy(nl_stream_t *s)
         nl_stream_decoder_pop_back(s);
     }
 
-    log_debug("#%d destroyed", s->sock.fd);
+    log_trace("#%d destroyed", s->sock.fd);
 
     nl_close(&s->sock);
 
@@ -268,6 +270,7 @@ static void write_handler(nl_event_t *ev)
     sock = ev->data;
     log_trace("#%d write_handler", sock->fd);
     s = sock->data;
+
     while (!list_empty(s->tosend)) {
         buf = (nl_buf_t *)list_front(s->tosend);
         rc = nl_send(sock, buf->buf, buf->len);

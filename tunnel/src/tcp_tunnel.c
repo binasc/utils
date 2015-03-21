@@ -9,6 +9,7 @@
 #define SEND_LOWER_BOUND (4*1024)
 
 static void on_received(nl_stream_t *c, nl_buf_t *buf);
+static void on_connected(nl_stream_t *c);
 static void on_sent(nl_stream_t *c, nl_buf_t *buf);
 static void on_closed(nl_stream_t *c);
 
@@ -83,6 +84,7 @@ void on_accepted(nl_stream_t *s)
     acceptor_data_t     *acc_data;
     stream_tunnel_t     *t;
     nl_stream_t         *ss, *cs;
+    nl_address_t        addr;
 
     log_trace("#%d on_accepted", s->sock.fd);
 
@@ -100,6 +102,14 @@ void on_accepted(nl_stream_t *s)
         //TODO:
     }
     ss->data = t;
+
+    rc = nl_socket_getpeername(&ss->sock, &addr);
+    if (tun_is_connect_side() && rc == 0) {
+        const char *str = nl_address_tostring(&addr);
+        if (str != NULL) {
+            log_info("#%d from %s", s->sock.fd, str);
+        }
+    }
 
     ss->cbs.on_received = on_received;
     ss->cbs.on_sent = on_sent;
@@ -144,6 +154,8 @@ void on_accepted(nl_stream_t *s)
         char tosend[256];
         nl_address_t *to;
 
+        gettimeofday(&t->begin, NULL);
+        cs->cbs.on_connected = on_connected;
         rc = nl_stream_connect(cs, acc_data->via);
         if (rc < 0) {
             // TODO:
@@ -199,6 +211,20 @@ static void on_received(nl_stream_t *s, nl_buf_t *buf)
         nl_stream_pause_receiving(s);
         log_debug("#%d paused @ %d", s->sock.fd, rc);
     }
+}
+
+static void on_connected(nl_stream_t *s)
+{
+    stream_tunnel_t *t;
+    struct timeval end, cost;
+
+    t = s->data;
+
+    gettimeofday(&end, NULL);
+
+    timersub(&end, &t->begin, &cost);
+
+    log_info("#%d connect cose: %d.%ds", s->sock.fd, (int)cost.tv_sec, (int)(cost.tv_usec / 100000));
 }
 
 static void on_sent(nl_stream_t *s, nl_buf_t *buf)

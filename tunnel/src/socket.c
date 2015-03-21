@@ -218,12 +218,11 @@ static int nl_post_connect(nl_socket_t *sock)
         sock->error = 1;
         sock->err = err;
         log_error("#%d connect: so_error: %d", sock->fd, err);
-    }
-    else {
-        sock->connected = 1;
+        return -1;
     }
 
-    log_trace("#%d connecting", sock->fd);
+    sock->connected = 1;
+    log_trace("#%d connected", sock->fd);
 
     return 0;
 }
@@ -295,36 +294,12 @@ int nl_recv(nl_socket_t *sock, char *buf, size_t len)
     return rc;
 }
 
-static int inet46_ntop(struct sockaddr *addr, char *dst)
-{
-    if (addr->sa_family == AF_INET) {
-        struct sockaddr_in *in = (struct sockaddr_in *)addr;
-        if (inet_ntop(AF_INET, &in->sin_addr, dst, INET_ADDRSTRLEN) == NULL) {
-            return -1;
-        }
-        sprintf(dst, "%s:%d", dst, ntohs(in->sin_port));
-
-        return 0;
-    }
-    else if (addr->sa_family == AF_INET6) {
-        struct sockaddr_in6 *in6 = (struct sockaddr_in6 *)addr;
-        if (inet_ntop(AF_INET6, &in6->sin6_addr, dst, INET6_ADDRSTRLEN) == NULL) {
-            return -1;
-        }
-        printf(dst, "%s:%d", dst, ntohs(in6->sin6_port));
-
-        return 0;
-    }
-
-    return -1;
-}
-
 int nl_recvfrom(nl_socket_t *sock, char *buf, size_t len, nl_address_t *addr)
 {
     int rc;
-    struct sockaddr saddr;
     socklen_t slen;
-    char output[INET6_ADDRSTRLEN + 6];
+    struct sockaddr saddr;
+    const char *straddr;
 
     sock->error = 0;
     sock->err = 0;
@@ -345,11 +320,12 @@ int nl_recvfrom(nl_socket_t *sock, char *buf, size_t len, nl_address_t *addr)
         return -1;
     }
 
-    if (inet46_ntop(&saddr, output) == -1) {
+    straddr = nl_address_tostring(addr);
+    if (straddr == NULL) {
         log_trace("#%d recvfrom(?:?) %d bytes", sock->fd, rc);
     }
     else {
-        log_trace("#%d recvfrom(%s) %d bytes", sock->fd, output, rc);
+        log_trace("#%d recvfrom(%s) %d bytes", sock->fd, straddr, rc);
     }
 
     return rc;
@@ -380,7 +356,7 @@ int nl_sendto(nl_socket_t *sock, const char *buf, size_t len, nl_address_t *addr
 {
     int rc;
     struct sockaddr saddr;
-    char output[INET6_ADDRSTRLEN + 6];
+    const char *straddr;
 
     sock->error = 0;
     sock->err = 0;
@@ -396,21 +372,23 @@ int nl_sendto(nl_socket_t *sock, const char *buf, size_t len, nl_address_t *addr
         sock->err = errno;
         if (sock->err != EAGAIN && sock->err != EWOULDBLOCK) {
             sock->error = 1;
-            if (inet46_ntop(&saddr, output) == -1) {
+            straddr = nl_address_tostring(addr);
+            if (straddr == NULL) {
                 log_error("#%d sendto(?:?): %s", sock->fd, strerror(sock->err));
             }
             else {
-                log_error("#%d sendto(%s): %s", sock->fd, output, strerror(sock->err));
+                log_error("#%d sendto(%s): %s", sock->fd, straddr, strerror(sock->err));
             }
         }
         return -1;
     }
 
-    if (inet46_ntop(&saddr, output) == -1) {
+    straddr = nl_address_tostring(addr);
+    if (straddr == NULL) {
         log_trace("#%d sendto(?:?) %d bytes", sock->fd, rc);
     }
     else {
-        log_trace("#%d sendto(%s) %d bytes", sock->fd, output, rc);
+        log_trace("#%d sendto(%s) %d bytes", sock->fd, straddr, rc);
     }
 
     return rc;
@@ -436,5 +414,35 @@ void nl_socket_copy(nl_socket_t *dst, nl_socket_t *src)
     memcpy(dst, src, sizeof(nl_socket_t));
     dst->wev.data = dst;
     dst->rev.data = dst;
+}
+
+int nl_socket_getsockname(nl_socket_t *sock, nl_address_t *addr)
+{
+    struct sockaddr sa;
+    socklen_t sa_len;
+
+    sa_len = sizeof(sa);
+
+    if (getsockname(sock->fd, &sa, &sa_len) == -1) {
+        log_error("#%d getsockname: %s", sock->fd, strerror(errno));
+        return -1;
+    }
+
+    return nl_address_setsockaddr(addr, &sa);
+}
+
+int nl_socket_getpeername(nl_socket_t *sock, nl_address_t *addr)
+{
+    struct sockaddr sa;
+    socklen_t sa_len;
+
+    sa_len = sizeof(sa);
+
+    if (getpeername(sock->fd, &sa, &sa_len) == -1) {
+        log_error("#%d getsockname: %s", sock->fd, strerror(errno));
+        return -1;
+    }
+
+    return nl_address_setsockaddr(addr, &sa);
 }
 
