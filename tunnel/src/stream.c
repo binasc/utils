@@ -27,22 +27,26 @@ static void accept_handler(nl_event_t *ev)
 
     s->error = 0;
     for ( ; ; ) {
-        rc = nl_accept(sock, &s->accepted);
+        rc = nl_accept(sock, &s->accepted_sock);
         if (rc == -1) {
             if (sock->error) {
                 s->error = 1;
                 nl_stream_close(s);
                 break;
             }
-            else if (s->accepted.error) {
-                // nothing to do
+            else if (s->accepted_sock.error) {
+                continue;
             }
             else {
                 break;
             }
         }
 
+        s->accepted = 0;
         s->cbs.on_accepted(s);
+        if (!s->accepted) {
+            nl_close(&s->accepted_sock);
+        }
     }
 }
 
@@ -359,12 +363,14 @@ int nl_stream_accept(nl_stream_t *acceptor, nl_stream_t *s)
         return -1;
     }
 
-    nl_socket_copy(&s->sock, &acceptor->accepted);
+    nl_socket_copy(&s->sock, &acceptor->accepted_sock);
 
     s->sock.data = s;
 
     s->sock.wev.handler = write_handler;
     s->sock.rev.handler = read_handler;
+
+    acceptor->accepted = 1;
 
     return 0;
 }

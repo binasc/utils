@@ -54,10 +54,11 @@ typedef struct nl_stream_s
 
     void                *data;
 
-    nl_socket_t         accepted;
+    nl_socket_t         accepted_sock;
 
     struct list_t       *tosend;
     unsigned            error :1;
+    unsigned            accepted :1;
     nl_event_t          closing_ev;
 } nl_stream_t;
 

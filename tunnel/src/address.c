@@ -147,6 +147,7 @@ static int inet46_ntop(struct sockaddr *addr, char *dst)
         return 0;
     }
 
+    log_error("inet46_ntop: unsupported address family: %d", addr->sa_family);
     return -1;
 }
 
