@@ -100,6 +100,8 @@ static void nl_process_events_and_timers(void)
     nl_msec_t       timer;
     nl_event_t     *ev;
 
+    log_trace("#ev nl_process_events_and_timers");
+
     timer = nl_event_find_timer();
 
     loop_ntimers = ntimers;
