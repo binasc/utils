@@ -53,7 +53,7 @@ static int front_splitter(void *data, const nl_buf_t *in, nl_buf_t *out)
     return out->len;
 }
 
-static void front_connector(nl_stream_t *s, nl_buf_t *buf)
+static void on_received_destination(nl_stream_t *s, nl_buf_t *buf)
 {
     int rc;
     stream_tunnel_t *t;
@@ -74,7 +74,7 @@ static void front_connector(nl_stream_t *s, nl_buf_t *buf)
     nl_address_setname(&addr, name);
     nl_address_setport(&addr, port);
 
-    log_debug("#%d ready to connect to %s:%u", s->sock.fd, name, (unsigned)port);
+    log_debug("#%d ready to connect to %s:%u", s->id, name, (unsigned)port);
 
     rc = nl_stream_connect(&t->back, &addr);
     if (rc < 0) {
@@ -108,7 +108,7 @@ static int send_destination(nl_stream_t *s, nl_address_t *to)
     buf.buf = tosend;
     buf.len = sizeof(port) + sizeof(name_len) + name_len;
     if (buf.len >= 256) {
-        log_error("#%d name(%s) too long", s->sock.fd, name);
+        log_error("#%d name(%s) too long", s->id, name);
         return -1;
     }
     rc = nl_stream_send(s, &buf);
@@ -127,7 +127,7 @@ void on_accepted(nl_stream_t *s)
     nl_stream_t         *fs, *bs;
     nl_address_t        addr;
 
-    log_trace("#%d on_accepted", s->sock.fd);
+    log_trace("#%d on_accepted", s->id);
 
     acc_data = s->data;
 
@@ -145,11 +145,11 @@ void on_accepted(nl_stream_t *s)
     }
     fs->data = t;
 
-    rc = nl_socket_getpeername(&fs->sock, &addr);
+    rc = nl_stream_getpeername(fs, &addr);
     if (tun_is_connect_side() && rc == 0) {
         const char *str = nl_address_tostring(&addr);
         if (str != NULL) {
-            log_info("#%d from %s", fs->sock.fd, str);
+            log_info("#%d from %s", fs->id, str);
         }
     }
 
@@ -177,10 +177,10 @@ void on_accepted(nl_stream_t *s)
             nl_stream_close(fs);
             return;
         }
-        fs->cbs.on_received = front_connector;
+        fs->cbs.on_received = on_received_destination;
     }
 
-    nl_event_add(&fs->sock.rev);
+    nl_stream_resume_receiving(fs);
 
     /* back side */
     bs = &t->back;
@@ -236,7 +236,7 @@ static void on_received(nl_stream_t *s, nl_buf_t *buf)
     int rc;
     stream_tunnel_t *t;
 
-    log_trace("#%d on_received", s->sock.fd);
+    log_trace("#%d on_received", s->id);
 
     t = s->data;
     if (s == &t->front ? t->back_closed : t->front_closed) {
@@ -258,7 +258,7 @@ static void on_received(nl_stream_t *s, nl_buf_t *buf)
             t->back_paused = 1;
         }
         nl_stream_pause_receiving(s);
-        log_debug("#%d paused @ %d", s->sock.fd, rc);
+        log_debug("#%d paused @ %d", s->id, rc);
     }
 }
 
@@ -273,8 +273,8 @@ static void on_connected(nl_stream_t *s)
 
     timersub(&end, &t->begin, &cost);
 
-    log_info("#%d connect cost: %d.%ds", s->sock.fd, (int)cost.tv_sec, (int)(cost.tv_usec / 100000));
-    nl_event_add(&s->sock.rev);
+    log_info("#%d connect cost: %d.%ds", s->id, (int)cost.tv_sec, (int)(cost.tv_usec / 100000));
+    nl_stream_resume_receiving(s);
 }
 
 static void on_sent(nl_stream_t *s, nl_buf_t *buf)
@@ -293,7 +293,7 @@ static void on_sent(nl_stream_t *s, nl_buf_t *buf)
                 t->front_paused = 0;
             }
             nl_stream_resume_receiving(s == &t->front ? &t->back : &t->front);
-            log_debug("#%d resume @ %d", s == &t->front ? t->back.sock.fd : t->front.sock.fd, rc);
+            log_debug("#%d resume @ %d", s == &t->front ? t->back.id : t->front.id, rc);
         }
     }
 }

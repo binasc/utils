@@ -57,7 +57,10 @@ typedef struct nl_stream_s
     nl_socket_t         accepted_sock;
 
     struct list_t       *tosend;
+
+    unsigned            id;     /* id == fd */
     unsigned            error :1;
+    unsigned            closed :1;
     unsigned            accepted :1;
     nl_event_t          closing_ev;
 } nl_stream_t;
@@ -80,6 +83,9 @@ void nl_stream_pause_receiving(nl_stream_t *s);
 void nl_stream_resume_receiving(nl_stream_t *s);
 void nl_stream_pause_sending(nl_stream_t *s);
 void nl_stream_resume_sending(nl_stream_t *s);
+
+int nl_stream_getsockname(nl_stream_t *s, nl_address_t *addr);
+int nl_stream_getpeername(nl_stream_t *s, nl_address_t *addr);
 
 #endif
 

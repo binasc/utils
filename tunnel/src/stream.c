@@ -260,8 +260,9 @@ static void nl_stream_destroy(nl_stream_t *s)
 
 static void linger_handler(nl_event_t *ev)
 {
-    log_trace("#- linger_handler");
-    nl_stream_destroy((nl_stream_t *)ev->data);
+    nl_stream_t *s = ev->data;
+    log_trace("#%d linger_handler", s->sock.fd);
+    nl_stream_destroy(s);
 }
 
 static void write_handler(nl_event_t *ev)
@@ -334,11 +335,13 @@ int nl_stream(nl_stream_t *s)
 
     rc = nl_socket(&s->sock, NL_STREAM);
     if (rc == -1) {
+        list_destroy(s->tosend);
+        s->tosend = NULL;
         s->error = 1;
-        nl_stream_close(s);
         return -1;
     }
 
+    s->id = s->sock.fd;
     s->sock.data = s;
 
     return 0;
@@ -346,6 +349,11 @@ int nl_stream(nl_stream_t *s)
 
 int nl_stream_listen(nl_stream_t *s, nl_address_t *addr, int backlog)
 {
+    if (s->closed) {
+        log_warning("#%d already closed", s->sock.fd);
+        return -1;
+    }
+
     s->sock.rev.handler = accept_handler;
     s->sock.wev.handler = NULL;
     if (nl_bind(&s->sock, addr) < 0) {
@@ -356,6 +364,11 @@ int nl_stream_listen(nl_stream_t *s, nl_address_t *addr, int backlog)
 
 int nl_stream_accept(nl_stream_t *acceptor, nl_stream_t *s)
 {
+    if (acceptor->closed) {
+        log_warning("#%d already closed", s->sock.fd);
+        return -1;
+    }
+
     memset(s, 0, sizeof(nl_stream_t));
 
     s->tosend = list_create(sizeof(nl_buf_t), NULL, NULL);
@@ -366,6 +379,7 @@ int nl_stream_accept(nl_stream_t *acceptor, nl_stream_t *s)
     nl_socket_copy(&s->sock, &acceptor->accepted_sock);
 
     s->sock.data = s;
+    s->id = s->sock.fd;
 
     s->sock.wev.handler = write_handler;
     s->sock.rev.handler = read_handler;
@@ -377,6 +391,11 @@ int nl_stream_accept(nl_stream_t *acceptor, nl_stream_t *s)
 
 int nl_stream_connect(nl_stream_t *s, nl_address_t *addr)
 {
+    if (s->closed) {
+        log_warning("#%d already closed", s->sock.fd);
+        return -1;
+    }
+
     s->sock.rev.handler = NULL;
     s->sock.wev.handler = connect_handler;
     return nl_connect(&s->sock, addr);
@@ -389,7 +408,8 @@ int nl_stream_send(nl_stream_t *s, nl_buf_t *b)
     nl_encoder_t *e;
     nl_buf_t tosend;
 
-    if (s->closing_ev.timer_set) {
+    if (s->closed) {
+        log_warning("#%d already closed", s->sock.fd);
         return -1;
     }
 
@@ -422,12 +442,13 @@ int nl_stream_close(nl_stream_t *s)
 {
     int timeout;
 
-    if (s->closing_ev.timer_set) {
+    if (s->closed || s->closing_ev.timer_set) {
         return 0;
     }
+    s->closed = 1;
 
     timeout = 0;
-    if (!s->error && s->sock.connected && !list_empty(s->tosend) /* && linger */) {
+    if (!s->error && s->sock.connected && !list_empty(s->tosend)) {
         timeout = 20000;
     }
 
@@ -573,5 +594,15 @@ void nl_stream_pause_sending(nl_stream_t *s)
 void nl_stream_resume_sending(nl_stream_t *s)
 {
     nl_event_add(&s->sock.wev);
+}
+
+int nl_stream_getsockname(nl_stream_t *s, nl_address_t *addr)
+{
+    return nl_socket_getsockname(&s->sock, addr);
+}
+
+int nl_stream_getpeername(nl_stream_t *s, nl_address_t *addr)
+{
+    return nl_socket_getpeername(&s->sock, addr);
 }
 
