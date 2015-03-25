@@ -46,8 +46,7 @@ char *xor(unsigned *last_key, char *buf, size_t *len)
 {
     size_t i;
     for (i = 0; i < *len; i++) {
-        buf[i] = ~buf[i];
-        buf[i] ^= s_key[*last_key];
+        buf[i] = ~buf[i] ^ s_key[*last_key];
         *last_key = (*last_key + 1) % 4;
     }
 

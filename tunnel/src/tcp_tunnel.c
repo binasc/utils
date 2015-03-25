@@ -34,15 +34,21 @@ static void stream_tunnel_destroy(stream_tunnel_t *t)
     free(t);
 }
 
-static int front_splitter(void *data, const nl_buf_t *in, nl_buf_t *out)
+#define MAX_DESTINATION 256
+
+static int destination_splitter(void *data, const nl_buf_t *in, nl_buf_t *out)
 {
-    uint8_t name_len;
+    uint16_t name_len;
 
     if (in->len < sizeof(uint16_t) + sizeof(name_len)) {
         return 0;
     }
 
-    name_len = *(uint8_t *)(in->buf + sizeof(uint16_t));
+    name_len = *(uint16_t *)(in->buf + sizeof(uint16_t));
+    if (name_len > MAX_DESTINATION) {
+        log_error("name_len to big, something wrong!");
+        return -1;
+    }
     if (in->len < sizeof(uint16_t) + sizeof(name_len) + name_len) {
         return 0;
     }
@@ -59,14 +65,13 @@ static void on_received_destination(nl_stream_t *s, nl_buf_t *buf)
     stream_tunnel_t *t;
     nl_address_t addr;
 
-    uint16_t port;
-    uint8_t name_len;
-    char name[256];
+    uint16_t port, name_len;
+    char name[MAX_DESTINATION + 1];
 
     t = s->data;
 
     port = ntohs(*(uint16_t *)buf->buf);
-    name_len = *(uint8_t *)(buf->buf + sizeof(port));
+    name_len = *(uint16_t *)(buf->buf + sizeof(port));
 
     memcpy(name, buf->buf + sizeof(port) + sizeof(name_len), name_len);
     name[name_len] = 0;
@@ -89,11 +94,10 @@ static void on_received_destination(nl_stream_t *s, nl_buf_t *buf)
 static int send_destination(nl_stream_t *s, nl_address_t *to)
 {
     int rc;
-    uint16_t port;
-    uint8_t name_len;
+    uint16_t port, name_len;
     const char *name;
     nl_buf_t buf;
-    char tosend[256];
+    char tosend[sizeof(port) + sizeof(name_len) + MAX_DESTINATION];
 
     name = nl_address_getname(to);
     port = htons(nl_address_getport(to));
@@ -107,7 +111,7 @@ static int send_destination(nl_stream_t *s, nl_address_t *to)
 
     buf.buf = tosend;
     buf.len = sizeof(port) + sizeof(name_len) + name_len;
-    if (buf.len >= 256) {
+    if (buf.len > MAX_DESTINATION) {
         log_error("#%d name(%s) too long", s->id, name);
         return -1;
     }
@@ -171,7 +175,7 @@ void on_accepted(nl_stream_t *s)
                 return;
             }
         }
-        rc = nl_stream_decoder_push_back(fs, front_splitter, NULL);
+        rc = nl_stream_decoder_push_back(fs, destination_splitter, NULL);
         if (rc == -1) {
             t->back_closed = 1;
             nl_stream_close(fs);

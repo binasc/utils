@@ -322,12 +322,11 @@ static void write_handler(nl_event_t *ev)
         }
     }
 
-    if (list_empty(s->tosend)) {
-        nl_event_del(&s->sock.wev);
-        if (s->closing_ev.timer_set) {
-            nl_event_del_timer(&s->closing_ev);
-            nl_stream_close(s);
-        }
+    /* tosend is empty */
+    nl_event_del(&s->sock.wev);
+    if (s->closing_ev.timer_set) {
+        nl_event_del_timer(&s->closing_ev);
+        nl_stream_close(s);
     }
 }
 
