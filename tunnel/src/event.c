@@ -124,12 +124,12 @@ void nl_process_loop(void)
 int nl_event_add_timer(nl_event_t *ev, nl_msec_t timer)
 {
     if (ev->timer_set) {
-        log_warning("event timer is already set");
+        log_warning("#ev event timer is already set");
         return 0;
     }
 
     if (ntimers == NL_MAX_TIMERS) {
-        log_error("add_event: event-list full");
+        log_error("#ev event timer list is full");
         return -1;
     }
 
@@ -141,7 +141,7 @@ int nl_event_add_timer(nl_event_t *ev, nl_msec_t timer)
     ev->timer_set = 1;
     timer_index[ntimers++] = ev;
 
-    log_debug("trigger timer after %d ms", timer);
+    log_debug("#ev trigger timer after %d ms", timer);
 
     return 0;
 }
@@ -164,7 +164,7 @@ int nl_event_del_timer(nl_event_t *ev)
         }
     }
 
-    log_error("event timer can not be found");
+    log_error("#ev event timer can not be found");
     return -1;
 }
 
