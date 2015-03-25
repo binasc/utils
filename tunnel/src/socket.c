@@ -206,6 +206,7 @@ static int nl_post_connect(nl_socket_t *sock)
 
     sock->error = 0;
     sock->err = 0;
+
     len = sizeof(err);
     rc = getsockopt(sock->fd, SOL_SOCKET, SO_ERROR, &err, &len);
     if (rc == -1) {
@@ -232,6 +233,7 @@ static void nl_connect_wrapper(nl_event_t *ev)
     nl_socket_t    *sock;
 
     sock = ev->data;
+    log_trace("#%d nl_connect_wrapper", sock->fd);
 
     (void) nl_post_connect(sock);
     ev->handler = sock->chandler;
@@ -270,6 +272,8 @@ int nl_connect(nl_socket_t *sock, nl_address_t *addr)
     sock->chandler = sock->wev.handler;
     sock->wev.handler = nl_connect_wrapper;
 
+    log_trace("#%d connecting", sock->fd);
+
     return 0;
 }
 
@@ -279,6 +283,7 @@ int nl_recv(nl_socket_t *sock, char *buf, size_t len)
 
     sock->error = 0;
     sock->err = 0;
+
     rc = recv(sock->fd, buf, len, 0);
     if (rc < 0) {
         sock->err = errno;
@@ -337,6 +342,7 @@ int nl_send(nl_socket_t *sock, const char *buf, size_t len)
 
     sock->error = 0;
     sock->err = 0;
+
     rc = send(sock->fd, buf, len, MSG_NOSIGNAL);
     if (rc < 0) {
         sock->err = errno;
@@ -422,7 +428,6 @@ int nl_socket_getsockname(nl_socket_t *sock, nl_address_t *addr)
     socklen_t sa_len;
 
     sa_len = sizeof(sa);
-
     if (getsockname(sock->fd, &sa, &sa_len) == -1) {
         log_error("#%d getsockname: %s", sock->fd, strerror(errno));
         return -1;
@@ -437,7 +442,6 @@ int nl_socket_getpeername(nl_socket_t *sock, nl_address_t *addr)
     socklen_t sa_len;
 
     sa_len = sizeof(sa);
-
     if (getpeername(sock->fd, &sa, &sa_len) == -1) {
         log_error("#%d getsockname: %s", sock->fd, strerror(errno));
         return -1;
