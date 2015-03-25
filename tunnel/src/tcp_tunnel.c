@@ -8,10 +8,10 @@
 #define SEND_UPPER_BOUND (8*1024)
 #define SEND_LOWER_BOUND (4*1024)
 
-static void on_received(nl_stream_t *c, nl_buf_t *buf);
-static void on_connected(nl_stream_t *c);
-static void on_sent(nl_stream_t *c, nl_buf_t *buf);
-static void on_closed(nl_stream_t *c);
+static void on_received(nl_stream_t *s, nl_buf_t *buf);
+static void on_connected(nl_stream_t *s);
+static void on_sent(nl_stream_t *s, size_t len);
+static void on_closed(nl_stream_t *s);
 
 static stream_tunnel_t *stream_tunnel_create()
 {
@@ -267,20 +267,23 @@ static void on_connected(nl_stream_t *s)
     stream_tunnel_t *t;
     struct timeval end, cost;
 
+    log_trace("#%d on_connected", s->id);
+
     t = s->data;
 
     gettimeofday(&end, NULL);
-
     timersub(&end, &t->begin, &cost);
 
     log_info("#%d connect cost: %d.%ds", s->id, (int)cost.tv_sec, (int)(cost.tv_usec / 100000));
     nl_stream_resume_receiving(s);
 }
 
-static void on_sent(nl_stream_t *s, nl_buf_t *buf)
+static void on_sent(nl_stream_t *s, size_t len)
 {
     int rc;
     stream_tunnel_t *t;
+
+    log_trace("#%d on_sent", s->id);
 
     rc = nl_stream_pending_bytes(s);
     if (rc < SEND_LOWER_BOUND) {

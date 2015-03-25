@@ -37,7 +37,7 @@ typedef struct nl_callback_s
 
     void (*on_received)(struct nl_stream_s *, nl_buf_t *buf);
     /* optional */
-    void (*on_sent)(struct nl_stream_s *, nl_buf_t *buf);
+    void (*on_sent)(struct nl_stream_s *, size_t);
     /* optional */
     void (*on_closed)(struct nl_stream_s *);
 } nl_callback_t;

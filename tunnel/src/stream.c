@@ -141,6 +141,7 @@ static int decode(nl_stream_t *s, nl_decoder_t *d, int depth, char *buf, size_t 
         in.len -= n;
         if (out.len > 0) {
             if (d->next == NULL) {
+                log_trace("#%d decode %zu bytes", s->sock.fd, out.len);
                 s->cbs.on_received(s, &out);
             }
             else {
@@ -151,7 +152,10 @@ static int decode(nl_stream_t *s, nl_decoder_t *d, int depth, char *buf, size_t 
         }
         if (!is_decoder_valid(s, depth)) {
             out = in;
-            s->cbs.on_received(s, &out);
+            if (out.len > 0) {
+                log_trace("#%d decode remain %zu bytes", s->sock.fd, out.len);
+                s->cbs.on_received(s, &out);
+            }
             return 0;
         }
     }
@@ -180,6 +184,7 @@ static int packet_handler(nl_stream_t *s, char *buf, size_t len)
         }
     }
     else {
+        log_trace("#%d direct %zu bytes", s->sock.fd, len);
         nl_buf_t b = { buf, len };
         s->cbs.on_received(s, &b);
     }
@@ -187,10 +192,12 @@ static int packet_handler(nl_stream_t *s, char *buf, size_t len)
     return 0;
 }
 
+#ifndef RECV_BUFF_SIZE
+#define RECV_BUFF_SIZE 16384
+#endif
+
 static void read_handler(nl_event_t *ev)
 {
-// TODO: multi-threads
-#define RECV_BUFF_SIZE 16384
     static char s_recv_buff[RECV_BUFF_SIZE];
 
     int rc;
@@ -204,14 +211,17 @@ static void read_handler(nl_event_t *ev)
     s->error = 0;
     for ( ; ; ) {
         rc = nl_recv(sock, s_recv_buff, RECV_BUFF_SIZE);
-        if (rc <= 0) {
-            if (rc == -1 && !sock->error) {
+        if (rc < 0) {
+            if (!sock->error) {
                 /* EAGAIN || EWOULDBLOCK */
                 return;
             }
-            else if (rc != 0) {
+            else {
                 s->error = 1;
+                break;
             }
+        }
+        else if (rc == 0) {
             break;
         }
         else {
@@ -269,7 +279,7 @@ static void write_handler(nl_event_t *ev)
 {
     nl_socket_t         *sock;
     nl_stream_t         *s;
-    nl_buf_t            *buf, snd;
+    nl_buf_t            *buf;
     int                 rc;
 
     sock = ev->data;
@@ -279,28 +289,27 @@ static void write_handler(nl_event_t *ev)
     while (!list_empty(s->tosend)) {
         buf = (nl_buf_t *)list_front(s->tosend);
         rc = nl_send(sock, buf->buf, buf->len);
-        snd.buf = buf->buf;
-        snd.len = rc;
-        if (rc == (int)buf->len) {
-            /* accurate pending bytes */
-            list_pop_front(s->tosend);
-            if (s->cbs.on_sent) {
-                s->cbs.on_sent(s, &snd);
+        if (rc >= 0) {
+            if ((size_t)rc < buf->len) {
+                /* accurate pending bytes */
+                buf->len -= rc;
+                memmove(buf->buf, buf->buf + rc, buf->len);
+                if (s->cbs.on_sent) {
+                    s->cbs.on_sent(s, rc);
+                }
             }
-            free(buf->buf);
-        }
-        else if (rc > 0 && rc < buf->len) {
-            /* accurate pending bytes */
-            buf->len -= rc;
-            if (s->cbs.on_sent) {
-                s->cbs.on_sent(s, &snd);
+            else {
+                /* accurate pending bytes */
+                list_pop_front(s->tosend);
+                if (s->cbs.on_sent) {
+                    s->cbs.on_sent(s, rc);
+                }
+                free(buf->buf);
             }
-            //memmove(buf->buf, buf->buf + rc, buf->len - rc);
-            memmove(buf->buf, buf->buf + rc, buf->len);
         }
-        else {
-            if (rc == -1 && !sock->error) {
-                //nl_event_add(&sock->wev);
+        else { /* rc < 0 */
+            if (!sock->error) {
+                return;
             }
             else {
                 s->error = 1;
