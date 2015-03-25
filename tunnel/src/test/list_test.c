@@ -21,20 +21,30 @@ int main(int argc, char *argv[])
     struct list_t *list;
 
     list = list_create(sizeof(int), NULL, NULL);
+    printf("list->head: %p\n", list->head);
+    printf("list->tail: %p\n", list->tail);
 
     // push/pop front/back for empty list
     val = 1;
     list_push_front(list, &val);
     traverse_list(list); // 1
+    printf("list->head: %p\n", list->head);
+    printf("list->tail: %p\n", list->tail);
 
     list_pop_front(list);
     traverse_list(list); //
+    printf("list->head: %p\n", list->head);
+    printf("list->tail: %p\n", list->tail);
 
     list_push_back(list, &val);
     traverse_list(list); // 1
+    printf("list->head: %p\n", list->head);
+    printf("list->tail: %p\n", list->tail);
 
     list_pop_back(list);
     traverse_list(list); //
+    printf("list->head: %p\n", list->head);
+    printf("list->tail: %p\n", list->tail);
 
     val = 2;
     list_push_front(list, &val);
@@ -42,18 +52,32 @@ int main(int argc, char *argv[])
     val = 1;
     list_push_front(list, &val);
     traverse_list(list); // 1 2
+    printf("list->head: %p\n", list->head);
+    printf("list->tail: %p\n", list->tail);
 
     list_pop_back(list);
     val = 2;
     list_push_back(list, &val);
     traverse_list(list); // 1 2
+    printf("list->head: %p\n", list->head);
+    printf("list->tail: %p\n", list->tail);
 
     // test for other ops
     val = *(int *)list_front(list);
     printf("%d\n", val); // 1
+    printf("list->head: %p\n", list->head);
+    printf("list->tail: %p\n", list->tail);
 
     val = *(int *)list_back(list);
     printf("%d\n", val); // 2
+    printf("list->head: %p\n", list->head);
+    printf("list->tail: %p\n", list->tail);
+
+    list_pop_front(list);
+    list_pop_back(list);
+    traverse_list(list); //
+    printf("list->head: %p\n", list->head);
+    printf("list->tail: %p\n", list->tail);
 
     list_destroy(list);
 
