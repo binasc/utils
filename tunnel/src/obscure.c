@@ -54,7 +54,7 @@ char *xor(unsigned *last_key, char *buf, size_t *len)
 }
 
 static unsigned char s_bh[] = {
-    0x42, 0x4c,                 /* 'BM' */
+    0x42, 0x4d,                 /* 'BM' */
     0x00, 0x00, 0x00, 0x00,     /* file size in byte */
     0x00, 0x00, 0x00, 0x00,     /* reserved */
     0x36, 0x00, 0x00, 0x00,     /* content offset from start of file */
