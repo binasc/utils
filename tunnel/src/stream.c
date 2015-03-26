@@ -450,7 +450,7 @@ int nl_stream_close(nl_stream_t *s)
 {
     int timeout;
 
-    if (s->closed || s->closing_ev.timer_set) {
+    if (s->closing_ev.timer_set) {
         return 0;
     }
     s->closed = 1;
