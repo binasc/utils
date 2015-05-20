@@ -42,9 +42,10 @@ methods = {
     'news.mydrivers.com':
         ('//div[@class="news_info"]',
         (
-            './/p[@class="news_bq"][1]',
             './/table[last()]',
-            './/div[@class="weixin"]'
+            './/p[@class="jcuo1"]',
+            './/div[@class="weixin"]',
+            './/p[@class="news_bq"][1]'
         ),
         redirectMydrivers)
 }
