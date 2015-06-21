@@ -109,8 +109,8 @@ int nl_resolve(const char *name, struct sockaddr *addr)
     hints.ai_next = NULL;
 
     rc = getaddrinfo(name, NULL, &hints, &result);
-    if (rc == -1) {
-        log_error("getaddrinfo: %s", gai_strerror(rc));
+    if (rc != 0) {
+        log_error("getaddrinfo: %d(%s)", rc, gai_strerror(rc));
         return -1;
     }
 
