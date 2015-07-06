@@ -9,7 +9,7 @@ typedef struct nl_buf_s
 
 typedef struct nl_packet_s
 {
-    struct sockaddr     addr;
+    nl_address_t        addr;
     nl_buf_t            buf;
 } nl_packet_t;
 

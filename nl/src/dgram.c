@@ -37,10 +37,9 @@ static void udp_read_handler(nl_event_t *ev)
     static char s_recv_buff[RECV_BUFF_SIZE];
 
     int             rc;
-    nl_socket_t    *sock;
-    nl_dgram_t  *d;
+    nl_socket_t     *sock;
+    nl_dgram_t      *d;
     nl_packet_t     p;
-    nl_address_t    addr;
 
     sock = ev->data;
     log_trace("#%d udp_read_handler", sock->fd);
@@ -48,13 +47,7 @@ static void udp_read_handler(nl_event_t *ev)
     d->error = 0;
 
     for ( ; ; ) {
-        rc = nl_address_setsockaddr(&addr, &p.addr);
-        if (rc == -1) {
-            d->error = 1;
-            break;
-        }
-
-        rc = nl_recvfrom(sock, s_recv_buff, RECV_BUFF_SIZE, &addr);
+        rc = nl_recvfrom(sock, s_recv_buff, RECV_BUFF_SIZE, &p.addr);
         if (rc < 0) {
             if (!sock->error) {
                 /* EAGAIN || EWOULDBLOCK */
@@ -80,10 +73,9 @@ static void udp_write_handler(nl_event_t *ev)
 {
     int                 rc;
     nl_socket_t         *sock;
-    nl_dgram_t       *d;
+    nl_dgram_t          *d;
     nl_packet_t         *p;
     nl_buf_t            *buf;
-    nl_address_t        addr;
 
     sock = ev->data;
     log_trace("#%d udpwrite_handler", sock->fd);
@@ -92,17 +84,7 @@ static void udp_write_handler(nl_event_t *ev)
         p = (nl_packet_t *)list_front(d->tosend);
         buf = &p->buf;
 
-        rc = nl_address_setsockaddr(&addr, &p->addr);
-        if (rc == -1) {
-            d->error = 1;
-            if (d->closing_ev.timer_set) {
-                nl_event_del_timer(&d->closing_ev);
-            }
-            nl_dgram_close(d);
-            return;
-        }
-
-        rc = nl_sendto(sock, buf->buf, buf->len, &addr);
+        rc = nl_sendto(sock, buf->buf, buf->len, &p->addr);
         if (rc == (int)buf->len) {
             if (d->on_sent) {
                 d->on_sent(d, p);
@@ -111,6 +93,7 @@ static void udp_write_handler(nl_event_t *ev)
             list_pop_front(d->tosend);
         }
         else if (rc > 0 && rc < buf->len) {
+            // TODO: ???
             log_fatal("?????????????????????");
             if (d->on_sent) {
                 d->on_sent(d, p);
@@ -210,5 +193,14 @@ int nl_dgram_close(nl_dgram_t *d)
     nl_event_add_timer(&d->closing_ev, 0);
 
     return 0;
+}
+void nl_dgram_resume_receiving(nl_dgram_t *d)
+{
+    nl_event_add(&d->sock.rev);
+}
+
+void nl_dgram_pause_receiving(nl_dgram_t *d)
+{
+    nl_event_del(&d->sock.rev);
 }
 

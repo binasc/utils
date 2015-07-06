@@ -301,7 +301,7 @@ int nl_recv(nl_socket_t *sock, char *buf, size_t len)
 
 int nl_recvfrom(nl_socket_t *sock, char *buf, size_t len, nl_address_t *addr)
 {
-    int rc;
+    int rc, bytes;
     socklen_t slen;
     struct sockaddr saddr;
     const char *straddr;
@@ -319,6 +319,7 @@ int nl_recvfrom(nl_socket_t *sock, char *buf, size_t len, nl_address_t *addr)
         }
         return -1;
     }
+    bytes = rc;
 
     rc = nl_address_setsockaddr(addr, &saddr);
     if (rc == -1) {
@@ -327,10 +328,10 @@ int nl_recvfrom(nl_socket_t *sock, char *buf, size_t len, nl_address_t *addr)
 
     straddr = nl_address_tostring(addr);
     if (straddr == NULL) {
-        log_trace("#%d recvfrom(?:?) %d bytes", sock->fd, rc);
+        log_trace("#%d recvfrom(?:?) %d bytes", sock->fd, bytes);
     }
     else {
-        log_trace("#%d recvfrom(%s) %d bytes", sock->fd, straddr, rc);
+        log_trace("#%d recvfrom(%s) %d bytes", sock->fd, straddr, bytes);
     }
 
     return rc;

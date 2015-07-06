@@ -26,5 +26,8 @@ int nl_dgram_bind(nl_dgram_t *d, nl_address_t *addr);
 int nl_dgram_send(nl_dgram_t *d, nl_packet_t *p);
 int nl_dgram_close(nl_dgram_t *d);
 
+void nl_dgram_resume_receiving(nl_dgram_t *d);
+void nl_dgram_pause_receiving(nl_dgram_t *d);
+
 #endif
 
