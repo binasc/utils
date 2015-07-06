@@ -1,11 +1,11 @@
-INC := -Isrc -I../utils/inc -I../nl/src
+INC := -Isrc -I../utils/inc
 CFLAGS = -Werror -Wall $(CMOREFLAGS) -MMD -MP $(INC)
-LDLIBS := -L../nl/bin -lnl
+LDLIBS := 
 SRC_DIR := src/
 OBJ_DIR := obj/
 BIN_DIR := bin/
 
-TARGET := $(BIN_DIR)tun
+TARGET := $(BIN_DIR)libnl.a
 
 SRCS := $(wildcard $(SRC_DIR)*.c)
 OBJS := $(patsubst %.c, $(OBJ_DIR)%.o, $(notdir $(SRCS)))
@@ -27,7 +27,7 @@ all:
 	@$(MAKE) $(TARGET)
 
 $(TARGET): $(OBJS)
-	$(CC) -o $@ $(CFLAGS) $^ $(LDLIBS)
+	$(AR) -rcs $@ $^
 
 $(OBJ_DIR)%.o: $(SRC_DIR)%.c
 	$(CC) -o $@ -c $(CFLAGS) $<
