@@ -334,7 +334,7 @@ int nl_recvfrom(nl_socket_t *sock, char *buf, size_t len, nl_address_t *addr)
         log_trace("#%d recvfrom(%s) %d bytes", sock->fd, straddr, bytes);
     }
 
-    return rc;
+    return bytes;
 }
 
 int nl_send(nl_socket_t *sock, const char *buf, size_t len)
