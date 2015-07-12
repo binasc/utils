@@ -2,6 +2,7 @@
 #include "log.h"
 
 #include <string.h>
+#include <netinet/in.h>
 
 #define DNS_OFFSET_ID       0
 #define DNS_OFFSET_FLAGS    2

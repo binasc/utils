@@ -1,6 +1,7 @@
 #ifndef __DNS_H__
 #define __DNS_H__
 
+#include <stdint.h>
 #include <stdlib.h>
 
 typedef char * dmsg_qd;
