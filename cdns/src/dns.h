@@ -4,6 +4,9 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#define DNS_RR_TYPE_A   1
+#define DNS_RR_CLASS_IN 1
+
 typedef char * dmsg_qd;
 typedef char * dmsg_rr;
 typedef const char * const_dmsg_qd;
@@ -30,14 +33,20 @@ uint16_t dmsg_get_nscount(const dmsg_t *d);
 uint16_t dmsg_get_arcount(const dmsg_t *d);
 
 dmsg_qd dmsg_get_qd(const dmsg_t *d, int pos);
+int dmsg_get_qname(const dmsg_t *d, const_dmsg_qd qd, char *name);
 uint16_t dmsg_get_qtype(const dmsg_t *d, const_dmsg_qd qd);
 uint16_t dmsg_get_qclass(const dmsg_t *d, const_dmsg_qd qd);
 
 dmsg_rr dmsg_get_rr(const dmsg_t *d, int pos);
+dmsg_rr dmsg_get_an(const dmsg_t *d, int pos);
+int dmsg_get_name(const dmsg_t *d, const_dmsg_rr rr, char *name);
 uint16_t dmsg_get_type(const dmsg_t *d, const_dmsg_rr rr);
 uint16_t dmsg_get_class(const dmsg_t *d, const_dmsg_rr rr);
 uint32_t dmsg_get_ttl(const dmsg_t *d, const_dmsg_rr rr);
 uint16_t dmsg_get_rdlength(const dmsg_t *d, const_dmsg_rr rr);
+const void *dmsg_get_rdata(const dmsg_t *d, const_dmsg_rr rr);
+
+void dmsg_delete(dmsg_t *d);
 
 void dmsg_debug_print(const dmsg_t *d);
 

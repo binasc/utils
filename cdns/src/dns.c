@@ -88,6 +88,7 @@ int dmsg_new(dmsg_t *d, const char *buf, size_t len)
 
     d->buf = malloc(len);
     if (d->buf == NULL) {
+        log_error("malloc() failed");
         return -1;
     }
     memcpy(d->buf, buf, len);
@@ -98,7 +99,17 @@ int dmsg_new(dmsg_t *d, const char *buf, size_t len)
     count += dmsg_get_nscount(d);
     count += dmsg_get_arcount(d);
 
+    if (count == 0) {
+        log_error("empty dns message");
+        free(d->buf);
+        return -1;
+    }
     d->rr = malloc(count * sizeof(char *));
+    if (d->rr == NULL) {
+        log_error("malloc() failed");
+        free(d->buf);
+        return -1;
+    }
     pos = d->buf + DNS_OFFSET_FIRST_RR;
     for (i = 0; i < count; i++) {
         int break_from_point = 0;
@@ -122,16 +133,27 @@ int dmsg_new(dmsg_t *d, const char *buf, size_t len)
         }
         else {
             pos += 10;
+            if (pos - d->buf > len) {
+                break;
+            }
             pos += ntohs(*(uint16_t *)(pos - 2));
         }
     }
 
     if (pos - d->buf != len) {
         log_error("failed to resolve dns message");
+        free(d->buf);
+        free(d->rr);
         return -1;
     }
 
     return 0;
+}
+
+void dmsg_delete(dmsg_t *d)
+{
+    free(d->buf);
+    free(d->rr);
 }
 
 uint16_t dmsg_get_id(const dmsg_t *d)
@@ -213,16 +235,56 @@ static const char *dmsg_skip_name(const dmsg_t *d, const char *rr)
     return rr + 1;
 }
 
+static int dmsg_fill_name(const dmsg_t *d, const char *rr, char *buf)
+{
+    while (*rr != 0) {
+        if (((*(uint8_t *)rr >> 6) & 0x3) == 0) {
+            memcpy(buf, rr + 1, *rr);
+            buf[*(uint8_t *)rr] = '.';
+            buf += *rr + 1;
+            rr += *rr + 1;
+        }
+        else {
+            int rc;
+            rc = dmsg_fill_name(d, d->buf + (ntohs(*(uint16_t *)rr) & 0x3fff), buf);
+            return buf - d->buf + rc;
+        }
+    }
+    *buf = 0;
+    return buf - d->buf;
+}
+
+dmsg_qd dmsg_get_qd(const dmsg_t *d, int pos)
+{
+    return d->rr[pos];
+}
+
+int dmsg_get_qname(const dmsg_t *d, const_dmsg_qd qd, char *name)
+{
+    return dmsg_fill_name(d, qd, name);
+}
+
 uint16_t dmsg_get_qtype(const dmsg_t *d, const_dmsg_qd qd)
 {
     qd = dmsg_skip_name(d, qd);
     return ntohs(*(uint16_t *)(qd + 0));
 }
 
+dmsg_rr dmsg_get_an(const dmsg_t *d, int pos)
+{
+    pos += dmsg_get_qdcount(d);
+    return d->rr[pos];
+}
+
 uint16_t dmsg_get_qclass(const dmsg_t *d, const_dmsg_qd qd)
 {
     qd = dmsg_skip_name(d, qd);
     return ntohs(*(uint16_t *)(qd + 2));
+}
+
+int dmsg_get_name(const dmsg_t *d, const_dmsg_rr rr, char *name)
+{
+    return dmsg_fill_name(d, rr, name);
 }
 
 uint16_t dmsg_get_type(const dmsg_t *d, const_dmsg_rr rr)
@@ -247,5 +309,11 @@ uint16_t dmsg_get_rdlength(const dmsg_t *d, const_dmsg_rr rr)
 {
     rr = dmsg_skip_name(d, rr);
     return ntohs(*(uint16_t *)(rr + 8));
+}
+
+const void *dmsg_get_rdata(const dmsg_t *d, const_dmsg_rr rr)
+{
+    rr = dmsg_skip_name(d, rr);
+    return rr + 10;
 }
 
