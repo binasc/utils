@@ -23,6 +23,8 @@ void on_closed(nl_dgram_t *d)
 
 void on_timeout(nl_event_t *ev)
 {
+    nl_dgram_t *d = ev->data;
+    nl_dgram_close(d);
 }
 
 void on_clean_received(nl_dgram_t *d, nl_packet_t *p)
@@ -95,6 +97,10 @@ void on_dirty_received(nl_dgram_t *d, nl_packet_t *p)
         nl_address_setname(&tosend.addr, cdns);
         nl_address_setport(&tosend.addr, 53);
         nl_dgram_send(resolver, &tosend);
+
+        d->timeout_ev.handler = on_timeout;
+        d->timeout_ev.data = d;
+        nl_event_add_timer(&d->timeout_ev, 10000);
     }
 
     nl_dgram_close(d);
@@ -148,6 +154,10 @@ void on_svr_received(nl_dgram_t *d, nl_packet_t *p)
     nl_address_setname(&tosend.addr, ddns);
     nl_address_setport(&tosend.addr, 53);
     nl_dgram_send(resolver, &tosend);
+
+    d->timeout_ev.handler = on_timeout;
+    d->timeout_ev.data = d;
+    nl_event_add_timer(&d->timeout_ev, 10000);
 }
 
 int main(int argc, char *argv[])
