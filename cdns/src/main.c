@@ -98,9 +98,9 @@ void on_dirty_received(nl_dgram_t *d, nl_packet_t *p)
         nl_address_setport(&tosend.addr, 53);
         nl_dgram_send(resolver, &tosend);
 
-        d->timeout_ev.handler = on_timeout;
-        d->timeout_ev.data = d;
-        nl_event_add_timer(&d->timeout_ev, 10000);
+        resolver->timeout_ev.handler = on_timeout;
+        resolver->timeout_ev.data = resolver;
+        nl_event_add_timer(&resolver->timeout_ev, 10000);
     }
 
     nl_dgram_close(d);
@@ -155,9 +155,9 @@ void on_svr_received(nl_dgram_t *d, nl_packet_t *p)
     nl_address_setport(&tosend.addr, 53);
     nl_dgram_send(resolver, &tosend);
 
-    d->timeout_ev.handler = on_timeout;
-    d->timeout_ev.data = d;
-    nl_event_add_timer(&d->timeout_ev, 10000);
+    resolver->timeout_ev.handler = on_timeout;
+    resolver->timeout_ev.data = resolver;
+    nl_event_add_timer(&resolver->timeout_ev, 10000);
 }
 
 int main(int argc, char *argv[])
@@ -189,7 +189,7 @@ int main(int argc, char *argv[])
     s_svr.data = NULL;
 
     nl_address_setname(&s_addr, "0.0.0.0");
-    nl_address_setport(&s_addr, 10053);
+    nl_address_setport(&s_addr, 53);
 
     rc = nl_dgram_bind(&s_svr, &s_addr);
     if (rc < 0) {
