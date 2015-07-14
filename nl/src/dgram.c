@@ -2,25 +2,25 @@
 #include "log.h"
 #include <string.h>
 
-static void nl_dgram_destroy(nl_dgram_t *c)
+static void nl_dgram_destroy(nl_dgram_t *d)
 {
     struct list_iterator_t  it;
     nl_packet_t             *p;
 
-    for (it = list_begin(c->tosend);
-         !list_iterator_equal(list_end(c->tosend), it);
+    for (it = list_begin(d->tosend);
+         !list_iterator_equal(list_end(d->tosend), it);
          it = list_iterator_next(it)) {
         p = list_iterator_item(it);
         free(p->buf.buf);
     }
-    list_destroy(c->tosend);
+    list_destroy(d->tosend);
 
-    log_debug("#%d destroyed", c->sock.fd);
+    log_debug("#%d destroyed", d->sock.fd);
 
-    nl_close(&c->sock);
+    nl_close(&d->sock);
 
-    if (c->on_closed) {
-        c->on_closed(c);
+    if (d->on_closed) {
+        d->on_closed(d);
     }
 }
 
@@ -30,10 +30,12 @@ static void udp_linger_handler(nl_event_t *ev)
     nl_dgram_destroy((nl_dgram_t *)ev->data);
 }
 
+#ifndef RECV_BUFF_SIZE
+#define RECV_BUFF_SIZE 16384
+#endif
+
 static void udp_read_handler(nl_event_t *ev)
 {
-// TODO: multi-threads
-#define RECV_BUFF_SIZE 16384
     static char s_recv_buff[RECV_BUFF_SIZE];
 
     int             rc;
@@ -78,8 +80,9 @@ static void udp_write_handler(nl_event_t *ev)
     nl_buf_t            *buf;
 
     sock = ev->data;
-    log_trace("#%d udpwrite_handler", sock->fd);
+    log_trace("#%d udp_write_handler", sock->fd);
     d = sock->data;
+
     while (!list_empty(d->tosend)) {
         p = (nl_packet_t *)list_front(d->tosend);
         buf = &p->buf;
@@ -102,8 +105,8 @@ static void udp_write_handler(nl_event_t *ev)
             buf->len -= rc;
         }
         else {
-            if (rc == -1 && !sock->error) {
-                //nl_event_add(&sock->wev);
+            if (!sock->error) {
+                return;
             }
             else {
                 d->error = 1;
@@ -116,12 +119,11 @@ static void udp_write_handler(nl_event_t *ev)
         }
     }
 
-    if (list_empty(d->tosend)) {
-        nl_event_del(&d->sock.wev);
-        if (d->closing_ev.timer_set) {
-            nl_event_del_timer(&d->closing_ev);
-            nl_dgram_close(d);
-        }
+    /* tosend is empty */
+    nl_event_del(&d->sock.wev);
+    if (d->closing_ev.timer_set) {
+        nl_event_del_timer(&d->closing_ev);
+        nl_dgram_close(d);
     }
 }
 
@@ -191,6 +193,9 @@ int nl_dgram_close(nl_dgram_t *d)
     d->closing_ev.handler = udp_linger_handler;
     d->closing_ev.data = d;
     nl_event_add_timer(&d->closing_ev, 0);
+    if (d->timeout_ev.timer_set) {
+        nl_event_del_timer(&d->timeout_ev);
+    }
 
     return 0;
 }

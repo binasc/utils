@@ -1,6 +1,8 @@
 #ifndef __BUFFER_H__
 #define __BUFFER_H__
 
+#include <stdlib.h>
+
 typedef struct nl_buf_s
 {
     char    *buf;

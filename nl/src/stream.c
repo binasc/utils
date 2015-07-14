@@ -216,10 +216,8 @@ static void read_handler(nl_event_t *ev)
                 /* EAGAIN || EWOULDBLOCK */
                 return;
             }
-            else {
-                s->error = 1;
-                break;
-            }
+            s->error = 1;
+            break;
         }
         else if (rc == 0) {
             break;

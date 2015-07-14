@@ -9,16 +9,18 @@
 typedef struct nl_dgram_s
 {
     nl_socket_t         sock;
-    void               *data;
+    void                *data;
 
-    void              (*on_received)(struct nl_dgram_s *, nl_packet_t *);
-    void              (*on_sent)(struct nl_dgram_s *, nl_packet_t *);
-    void              (*on_closed)(struct nl_dgram_s *);
+    void                (*on_received)(struct nl_dgram_s *, nl_packet_t *);
+    void                (*on_sent)(struct nl_dgram_s *, nl_packet_t *);
+    void                (*on_closed)(struct nl_dgram_s *);
 
-    struct list_t      *tosend;
+    struct list_t       *tosend;
 
     unsigned            error :1;
     nl_event_t          closing_ev;
+    /* public */
+    nl_event_t          timeout_ev;
 } nl_dgram_t;
 
 int nl_dgram(nl_dgram_t *d);
