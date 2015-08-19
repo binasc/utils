@@ -4,3 +4,4 @@ lib/
 
 *.pyc
 .DS_Store
+.*.swp
