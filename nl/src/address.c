@@ -95,8 +95,15 @@ int nl_address_getsockaddr(nl_address_t *addr, struct sockaddr *saddr)
 int nl_resolve(const char *name, struct sockaddr *addr)
 {
     int rc;
+    struct in_addr in_addr;
     struct addrinfo hints;
     struct addrinfo *result, *rp;
+
+    rc = inet_pton(AF_INET, name, &in_addr);
+    if (rc == 1) {
+        ((struct sockaddr_in *)addr)->sin_addr = in_addr;
+        return 0;
+    }
 
     memset(&hints, 0, sizeof(struct addrinfo));
     /* AF_UNSPEC, AF_INET, AF_INET6 */
