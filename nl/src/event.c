@@ -51,8 +51,13 @@ static nl_msec_t nl_event_find_timer(void)
 
     gettimeofday(&now, NULL);
     if (timercmp(&timer_index[0]->timeout, &now, >)) {
+        nl_msec_t rc;
         timersub(&timer_index[0]->timeout, &now, &res);
-        return nl_timeval2msec(&res);
+        rc = nl_timeval2msec(&res);
+        if (rc == 0 && res.tv_usec > 0) {
+            return 1;
+        }
+        return rc;
     }
 
     return 0;
