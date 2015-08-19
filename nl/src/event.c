@@ -25,7 +25,7 @@ static int event_less(const void *lhs, const void *rhs)
     lev = lhs;
     rev = rhs;
 
-    if (timercmp(&lev->timeout, &lev->timeout, <)) {
+    if (timercmp(&lev->timeout, &rev->timeout, <)) {
         return -1;
     }
     else if (!timercmp(&lev->timeout, &rev->timeout, !=)) {
