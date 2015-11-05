@@ -223,7 +223,7 @@ static void read_handler(nl_event_t *ev)
             break;
         }
         else {
-            rc = packet_handler(sock->data, s_recv_buff, rc);
+            rc = packet_handler(s, s_recv_buff, rc);
             if (rc < 0) {
                 s->error = 1;
                 break;

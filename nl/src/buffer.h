@@ -3,6 +3,8 @@
 
 #include <stdlib.h>
 
+#include "address.h"
+
 typedef struct nl_buf_s
 {
     char    *buf;

@@ -72,6 +72,8 @@ int nl_socket(nl_socket_t *sock, int type)
     sock->fd = fd;
     sock->open = 1;
     sock->type = type;
+    sock->rev.fd = fd;
+    sock->wev.fd = fd;
 
     log_trace("#%d created", fd);
 
@@ -132,6 +134,8 @@ int nl_accept(nl_socket_t *sock, nl_socket_t *nsock)
     nsock->fd = fd;
     nsock->open = 1;
     nsock->connected = 1;
+    nsock->rev.fd = fd;
+    nsock->wev.fd = fd;
 
     log_trace("#%d accept #%d", sock->fd, fd);
 

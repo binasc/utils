@@ -3,7 +3,7 @@
 #include <errno.h>
 #include <assert.h>
 
-#include "socket.h"
+#include "event.h"
 #include "log.h"
 
 static int nl_select_init(void);
@@ -53,25 +53,21 @@ static int nl_select_done(void)
 
 static int nl_select_add_event(nl_event_t *ev)
 {
-    nl_socket_t *sock;
-
-    sock = ev->data;
-
     if (ev->index != NL_INVALID_INDEX) {
         log_warning("select event fd: %d is already set %s",
-                sock->fd, ev->write ? "write" : "read");
+                ev->fd, ev->write ? "write" : "read");
         return 0;
     }
 
     if (ev->write) {
-        FD_SET(sock->fd, &master_write_fd_set);
+        FD_SET(ev->fd, &master_write_fd_set);
     }
     else {
-        FD_SET(sock->fd, &master_read_fd_set);
+        FD_SET(ev->fd, &master_read_fd_set);
     }
 
-    if (max_fd != -1 && sock->fd > max_fd) {
-        max_fd = sock->fd;
+    if (max_fd != -1 && ev->fd > max_fd) {
+        max_fd = ev->fd;
     }
 
     ev->active = 1;
@@ -85,10 +81,6 @@ static int nl_select_add_event(nl_event_t *ev)
 
 static int nl_select_del_event(nl_event_t *ev)
 {
-    nl_socket_t *sock;
-
-    sock = ev->data;
-
     if (ev->index == NL_INVALID_INDEX) {
         return 0;
     }
@@ -96,13 +88,13 @@ static int nl_select_del_event(nl_event_t *ev)
     ev->active = 0;
 
     if (ev->write) {
-        FD_CLR(sock->fd, &master_write_fd_set);
+        FD_CLR(ev->fd, &master_write_fd_set);
     }
     else {
-        FD_CLR(sock->fd, &master_read_fd_set);
+        FD_CLR(ev->fd, &master_read_fd_set);
     }
 
-    if (sock->fd == max_fd) {
+    if (ev->fd == max_fd) {
         max_fd = -1;
     }
 
@@ -120,7 +112,6 @@ static int nl_select_process_events(nl_msec_t timer)
 {
     int             i, ready, err, found, nready;
     fd_set          read_fd_set, write_fd_set;
-    nl_socket_t     *sock;
     nl_event_t      *ev;
     struct timeval  tv, *tp;
 
@@ -138,9 +129,9 @@ static int nl_select_process_events(nl_msec_t timer)
 
     if (max_fd == -1) {
         for (i = 0; i < nevents; i++) {
-            sock = event_index[i]->data;
-            if (max_fd < sock->fd) {
-                max_fd = sock->fd;
+            ev = event_index[i];
+            if (max_fd < ev->fd) {
+                max_fd = ev->fd;
             }
         }
     }
@@ -169,16 +160,15 @@ static int nl_select_process_events(nl_msec_t timer)
 
     for (i = 0; i < nevents; i++) {
         ev = event_index[i];
-        sock = ev->data;
         found = 0;
 
         if (ev->write) {
-            if (FD_ISSET(sock->fd, &write_fd_set)) {
+            if (FD_ISSET(ev->fd, &write_fd_set)) {
                 found = 1;
             }
         }
         else {
-            if (FD_ISSET(sock->fd, &read_fd_set)) {
+            if (FD_ISSET(ev->fd, &read_fd_set)) {
                 found = 1;
             }
         }

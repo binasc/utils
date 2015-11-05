@@ -10,6 +10,7 @@ typedef void (*handler_fn)(struct nl_event_s *);
 
 typedef struct nl_event_s
 {
+    int                 fd;
     unsigned            index;
     struct timeval      timeout;
 
