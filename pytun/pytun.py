@@ -1,74 +1,165 @@
 #!/usr/bin/env python
-import logging
 import sys
-import socket
-import select
-from event import Event
+import epoll
+import event
+from acceptor import Acceptor
+from stream import Stream
+import getopt
+import logging
+import struct
+import obscure
 
-class Epoll:
+_logger = logging.getLogger('Stream')
 
-    __registered_read = {}
-    __registered_write = {}
+AcceptMode = False
+ConnectMode = False
+ServerList = []
 
-    __ready = []
+def processAcceptSideArgument(arg):
+    serverlist = []
+    hostlist = arg.split('/')
+    for host in hostlist:
+        if len(host) == 0:
+            continue
+        addr, port = host.split(':')
+        port = int(port)
+        serverlist.append((addr, port, None))
+    return serverlist
 
-    def __init__(self):
-        self.__fd = select.epoll()
+def acceptSideReceiveTo(self, data):
+    addr, port = data.split(':')
+    port = int(port)
+    _logger.debug('connect to: %s:%d', addr, port)
 
-    def register(self, event):
-        if event.isWrite():
-            mask = select.EPOLLOUT
-        else:
-            mask = select.EPOLLIN
-        fd = event.getFd()
-        self.__fd.register(fd, mask)
-        if event.isWrite():
-            self.__registered_write[fd] = event
-        else:
-            self.__registered_read[fd] = event;
+    back = Stream()
+    back.connect(addr, port)
+    tunnel = self
 
-    def process_events(self, timeout = -1):
-        self.__ready = []
-        ready_list = self.__fd.poll(timeout)
-        for fd, ev_type in ready_list:
-            if ev_type & select.EPOLLOUT:
-                if fd in self.__registered_write:
-                    self.__ready.append(self.__registered_write[fd])
-            elif ev_type & select.EPOLLIN:
-                if fd in self.__registered_read:
-                    self.__ready.append(self.__registered_read[fd])
+    def tunnelReceived(self, data):
+        back.send(data)
 
-    def process_events_and_timers(self):
-        print 'loop'
-        self.process_events(5)
+    def tunnelClosed(self):
+        back.close()
 
-        for event in self.__ready:
-            event.getHandler()(event)
+    def backendReceived(self, data):
+        tunnel.send(data)
 
-    def process_loop(self):
-        while True:
-            self.process_events_and_timers()
+    def backendClosed(self):
+        tunnel.close()
+
+    self.onReceived = tunnelReceived
+    self.onClosed = tunnelClosed
+    back.onReceived = backendReceived
+    back.onClosed = backendClosed
+
+def acceptSideAcceptor(tunnel):
+
+    def genOnToHandler():
+        enable = [True]
+        def getToHandler(data):
+            # TODO: check integration
+            if enable[0] == False:
+                return (data, len(data))
+            if len(data) < 4:
+                return (None, 0)
+            length, typ3 = struct.unpack('!HH', data[0:4])
+            if len(data) < length:
+                return (NOne, 0)
+            if typ3 == 1:
+                addr, port = struct.unpack('!%dsH' % (length-6), data[4:length])
+            addr_port = addr + ':' + str(port)
+            enable[0] = False
+            return (addr_port, length)
+        return getToHandler
+
+    tunnel.appendSendHandler(obscure.genXorEncode())
+    tunnel.appendSendHandler(obscure.base64encode)
+    tunnel.appendSendHandler(obscure.genHttpEncode(False))
+    tunnel.appendReceiveHandler(obscure.genHttpDecode())
+    tunnel.appendReceiveHandler(obscure.base64deocde)
+    tunnel.appendReceiveHandler(obscure.genXorDecode())
+    tunnel.appendReceiveHandler(genOnToHandler())
+    tunnel.onReceived = acceptSideReceiveTo
+    tunnel.beginReceiving()
 
 
-def on_read(event):
-    print("on read")
+def processConnectSideArgument(arg):
+    serverlist = []
+    hostslist = arg.split(',')
+    for hosts in hostslist:
+        if len(hosts) == 0:
+            continue
+        fr0m, via, to = hosts.split('/')
+        addr, port = fr0m.split(':')
+        port = int(port)
+        serverlist.append((addr, port, (via.split(':'), to.split(':'))))
+    return serverlist
 
-def on_write(event):
-    print("on write")
+def genConnectSideAcceptor(via, to):
+    def generateTo(to):
+        addr, port = to
+        return struct.pack('!HH%dsH' % (len(addr)), 6 + len(addr), 1, addr, port)
+
+    def connectSideAcceptor(front):
+        tunnel = Stream()
+        addr, port = via
+        tunnel.connect(addr, port)
+        tunnel.appendSendHandler(obscure.genXorEncode())
+        tunnel.appendSendHandler(obscure.base64encode)
+        tunnel.appendSendHandler(obscure.genHttpEncode(True))
+        tunnel.appendReceiveHandler(obscure.genHttpDecode())
+        tunnel.appendReceiveHandler(obscure.base64deocde)
+        tunnel.appendReceiveHandler(obscure.genXorDecode())
+        tunnel.send(generateTo(to))
+
+        def tunnelReceived(self, data):
+            front.send(data)
+
+        def tunnelClosed(self):
+            front.close()
+
+        def frontendReceived(self, data):
+            tunnel.send(data)
+
+        def frontendClosed(self):
+            tunnel.close()
+
+        tunnel.onReceived = tunnelReceived
+        tunnel.onClosed = tunnelClosed
+        front.onReceived = frontendReceived
+        front.onClosed = frontendClosed
+        front.beginReceiving()
+
+    return connectSideAcceptor
 
 if __name__ == '__main__':
-    epoll = Epoll()
+    #logging.basicConfig(level=logging.WARNING)
+    optlist, args = getopt.getopt(sys.argv[1:], 'A:C:')
+    for cmd, arg in optlist:
+        if cmd == '-A':
+            AcceptMode = True
+            if ConnectMode == True:
+                raise Exception('Already in Connect Mode')
+            ServerList = processAcceptSideArgument(arg)
+        if cmd == '-C':
+            ConnectMode = True
+            if AcceptMode == True:
+                raise Exception('Already in Accept Mode')
+            ServerList = processConnectSideArgument(arg)
 
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    print("fd: " + str(server.fileno()))
-    server.setblocking(False)
-    server.bind(('0.0.0.0', 12345))
-    server.listen(5)
 
-    rev = Event();
-    rev.setFd(server.fileno())
-    rev.setHandler(on_read)
+    epoll.Epoll.init()
 
-    epoll.register(rev)
+    for addr, port, arg in ServerList:
+        acceptor = Acceptor()
+        acceptor.bind(addr, port)
+        acceptor.listen()
+        if AcceptMode == True:
+            acceptor.onAccepted = acceptSideAcceptor
+        else:
+            via, to = arg
+            via[1] = int(via[1])
+            to[1] = int(to[1])
+            acceptor.onAccepted = genConnectSideAcceptor(via, to)
 
-    epoll.process_loop()
+    event.Event.processLoop()
