@@ -123,6 +123,7 @@ class Stream:
                 return 0
 
     def __onReceive(self):
+        _logger.debug('__onReceive')
         while True:
             try:
                 recv = self.__fd.recv(4096)

@@ -133,7 +133,7 @@ def genConnectSideAcceptor(via, to):
     return connectSideAcceptor
 
 if __name__ == '__main__':
-    #logging.basicConfig(level=logging.WARNING)
+    logging.basicConfig(level=logging.DEBUG)
     optlist, args = getopt.getopt(sys.argv[1:], 'A:C:')
     for cmd, arg in optlist:
         if cmd == '-A':
