@@ -85,7 +85,7 @@ class Stream:
                 sent = self.__fd.send(data)
                 if sent < len(data):
                     data = data[sent:]
-                    tosend.appendleft(data)
+                    self.__tosend.appendleft(data)
             except socket.error, msg:
                 if msg.errno != errno.EAGAIN and msg.errno != errno.EINPROGRESS:
                     self.__error = True
