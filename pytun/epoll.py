@@ -30,7 +30,6 @@ class Epoll:
         if event.isWrite():
             mask = select.EPOLLOUT
         else:
-            mask = select.EPOLLOUT
             mask = select.EPOLLIN
 
         fd = event.getFd()

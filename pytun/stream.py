@@ -86,13 +86,18 @@ class Stream:
         self.__wev.setHandler(lambda ev: self.__checkConnected())
         try:
             self.__fd.connect((addr, port))
-        except socket.error, msg:
+        except socket.error as msg:
             if msg.errno != errno.EAGAIN and msg.errno != errno.EINPROGRESS:
                 _logger.error('fd: %d, connect: %s', self.__fd.fileno(), os.strerror(msg.errno))
                 self.__error = True
                 self.__closeAgain()
-                return
-        Event.addEvent(self.__wev)
+            else:
+                Event.addEvent(self.__wev)
+            return
+        else:
+            timer = Event.addTimer(0)
+            timer.setHandler(lambda ev: self.__wev.getHandler()(self.__wev))
+
 
     def __onSend(self):
         _logger.debug('__onSend')
@@ -104,15 +109,14 @@ class Stream:
                 if sent < len(data):
                     _logger.debug('fd: %d sent less than %d bytes', self.__fd.fileno(), len(data))
                     self.__tosend.appendleft(data[sent:])
-            except socket.error, msg:
+            except socket.error as msg:
                 if msg.errno != errno.EAGAIN and msg.errno != errno.EINPROGRESS:
                     _logger.error('fd: %d, send: %s', self.__fd.fileno(), os.strerror(msg.errno))
                     self.__error = True
                     self.__closeAgain()
-                    return
                 else:
                     self.__tosend.appendleft(data)
-                    return
+                return
 
         Event.delEvent(self.__wev)
         if self.__cev != None:
@@ -150,23 +154,22 @@ class Stream:
             try:
                 recv = self.__fd.recv(4096)
                 if len(recv) == 0:
-                    break
+                    self.close()
+                    return
                 _logger.debug('fd: %d recv %d bytes', self.__fd.fileno(), len(recv))
-            except socket.error, msg:
+            except socket.error as msg:
                 if msg.errno != errno.EAGAIN and msg.errno != errno.EINPROGRESS:
                     _logger.error('fd: %d, recv: %s', self.__fd.fileno(), os.strerror(msg.errno))
                     self.__error = True
                     self.__closeAgain()
-                    return
-                else:
-                    return
+                return
+
             try:
                 self.__decode(0, recv)
             except Exception as e:
                 _logger.error('decode: %s', e)
                 self.__error = True
                 self.__closeAgain()
-        self.close()
 
     def beginReceiving(self):
         Event.addEvent(self.__rev)
