@@ -47,10 +47,10 @@ def acceptSideReceiveTo(self, data):
     def backendClosed(self):
         tunnel.close()
 
-    self.onReceived = tunnelReceived
-    self.onClosed = tunnelClosed
-    back.onReceived = backendReceived
-    back.onClosed = backendClosed
+    self.setOnReceived(tunnelReceived)
+    self.setOnClosed(tunnelClosed)
+    back.setOnReceived(backendReceived)
+    back.setOnClosed(backendClosed)
 
 def acceptSideAcceptor(tunnel):
 
@@ -64,7 +64,7 @@ def acceptSideAcceptor(tunnel):
                 return (None, 0)
             length, typ3 = struct.unpack('!HH', data[0:4])
             if len(data) < length:
-                return (NOne, 0)
+                return (None, 0)
             if typ3 == 1:
                 addr, port = struct.unpack('!%dsH' % (length-6), data[4:length])
             addr_port = addr + ':' + str(port)
@@ -79,7 +79,7 @@ def acceptSideAcceptor(tunnel):
     tunnel.appendReceiveHandler(obscure.base64deocde)
     tunnel.appendReceiveHandler(obscure.genXorDecode())
     tunnel.appendReceiveHandler(genOnToHandler())
-    tunnel.onReceived = acceptSideReceiveTo
+    tunnel.setOnReceived(acceptSideReceiveTo)
     tunnel.beginReceiving()
 
 
@@ -124,10 +124,10 @@ def genConnectSideAcceptor(via, to):
         def frontendClosed(self):
             tunnel.close()
 
-        tunnel.onReceived = tunnelReceived
-        tunnel.onClosed = tunnelClosed
-        front.onReceived = frontendReceived
-        front.onClosed = frontendClosed
+        tunnel.setOnReceived(tunnelReceived)
+        tunnel.setOnClosed(tunnelClosed)
+        front.setOnReceived(frontendReceived)
+        front.setOnClosed(frontendClosed)
         front.beginReceiving()
 
     return connectSideAcceptor
@@ -155,11 +155,11 @@ if __name__ == '__main__':
         acceptor.bind(addr, port)
         acceptor.listen()
         if AcceptMode == True:
-            acceptor.onAccepted = acceptSideAcceptor
+            acceptor.setOnAccepted(acceptSideAcceptor)
         else:
             via, to = arg
             via[1] = int(via[1])
             to[1] = int(to[1])
-            acceptor.onAccepted = genConnectSideAcceptor(via, to)
+            acceptor.setOnAccepted(genConnectSideAcceptor(via, to))
 
     event.Event.processLoop()

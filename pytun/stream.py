@@ -1,11 +1,12 @@
 import socket
 import errno
+import os
 from event import Event
 from collections import deque
 import logging
 
 _logger = logging.getLogger('Stream')
-_logger.setLevel(logging.WARNING)
+_logger.setLevel(logging.DEBUG)
 
 class Stream:
 
@@ -17,13 +18,13 @@ class Stream:
         self.__cev = None
 
         self.__encoders = []
-        self.__decoders = []
+        self.__decoders = [(lambda data: (data, len(data)), [''])]
 
         self.__error = False
 
-        self.onConnected = None
-        self.onReceived = None
-        self.onClosed = None
+        self.__onConnected = None
+        self.__onReceived = None
+        self.__onClosed = None
 
         if conn == None:
             self.__fd = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -48,7 +49,16 @@ class Stream:
     def __eq__(self, another):
         return self.__fd.fileno() == another.__fd.fileno()
 
-    def __onConnected(self):
+    def setOnConnected(self, onConnected):
+        self.__onConnected = onConnected
+
+    def setOnReceived(self, onReceived):
+        self.__onReceived = onReceived
+
+    def setOnClosed(self, onClosed):
+        self.__onClosed = onClosed
+
+    def __checkConnected(self):
         _logger.debug('__onConnected')
         err = self.__fd.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
         if err != 0:
@@ -61,17 +71,24 @@ class Stream:
         if len(self.__tosend) == 0:
             Event.delEvent(self.__wev)
             
-        if self.onConnected != None:
-            self.onConnected()
+        if self.__onConnected != None:
+            try:
+                self.__onConnected()
+            except:
+                _logger.error('__onConnected exception')
+                self.__error = True
+                self.__closeAgain()
+                return
         else:
             self.beginReceiving()
 
     def connect(self, addr, port):
-        self.__wev.setHandler(lambda ev: self.__onConnected())
+        self.__wev.setHandler(lambda ev: self.__checkConnected())
         try:
             self.__fd.connect((addr, port))
         except socket.error, msg:
             if msg.errno != errno.EAGAIN and msg.errno != errno.EINPROGRESS:
+                _logger.error('fd: %d, connect: %s', self.__fd.fileno(), os.strerror(msg.errno))
                 self.__error = True
                 self.__closeAgain()
                 return
@@ -83,13 +100,18 @@ class Stream:
             data = self.__tosend.popleft()
             try:
                 sent = self.__fd.send(data)
+                _logger.debug('fd: %d sent %d bytes', self.__fd.fileno(), sent)
                 if sent < len(data):
-                    data = data[sent:]
-                    self.__tosend.appendleft(data)
+                    _logger.debug('fd: %d sent less than %d bytes', self.__fd.fileno(), len(data))
+                    self.__tosend.appendleft(data[sent:])
             except socket.error, msg:
                 if msg.errno != errno.EAGAIN and msg.errno != errno.EINPROGRESS:
+                    _logger.error('fd: %d, send: %s', self.__fd.fileno(), os.strerror(msg.errno))
                     self.__error = True
                     self.__closeAgain()
+                    return
+                else:
+                    self.__tosend.appendleft(data)
                     return
 
         Event.delEvent(self.__wev)
@@ -104,18 +126,18 @@ class Stream:
         self.__tosend.append(data)
 
     def __decode(self, depth, data):
-        if len(self.__decoders) == 0:
-            self.onReceived(self, data)
-            return
-
         decoder, remain = self.__decoders[depth]
-        remain[0] = remain[0] + data
+        remain[0] += data
 
         while len(remain[0]) > 0:
             processed, processed_bytes = decoder(remain[0])
             if processed_bytes > 0:
                 if depth == len(self.__decoders) - 1:
-                    self.onReceived(self, processed)
+                    try:
+                        self.__onReceived(self, processed)
+                    except Exception as e:
+                        _logger.error('__onReceived exception')
+                        raise e
                 else:
                     self.__decode(depth + 1, processed) < 0
                 remain[0] = remain[0][processed_bytes:]
@@ -127,16 +149,23 @@ class Stream:
         while True:
             try:
                 recv = self.__fd.recv(4096)
+                if len(recv) == 0:
+                    break
+                _logger.debug('fd: %d recv %d bytes', self.__fd.fileno(), len(recv))
             except socket.error, msg:
                 if msg.errno != errno.EAGAIN and msg.errno != errno.EINPROGRESS:
+                    _logger.error('fd: %d, recv: %s', self.__fd.fileno(), os.strerror(msg.errno))
                     self.__error = True
                     self.__closeAgain()
                     return
                 else:
                     return
-            if len(recv) == 0:
-                break
-            self.__decode(0, recv)
+            try:
+                self.__decode(0, recv)
+            except:
+                _logger.error('__decode exception')
+                self.__error = True
+                self.__closeAgain()
         self.close()
 
     def beginReceiving(self):
@@ -152,10 +181,14 @@ class Stream:
         self.__decoders.append((handler, ['']))
 
     def __onClose(self):
-        _logger.debug("__onClose: %d closed", self.__fd.fileno())
+        _logger.debug('__onClose')
+        _logger.debug('fd: %d closed', self.__fd.fileno())
         self.__fd.close()
-        if self.onClosed != None:
-            self.onClosed(self)
+        if self.__onClosed != None:
+            try:
+                self.__onClosed(self)
+            except:
+                pass
 
     def __closeAgain(self):
         if self.__cev != None:
@@ -164,9 +197,10 @@ class Stream:
         self.close()
 
     def close(self):
+        _logger.debug('close')
         if self.__cev != None:
             return
-        _logger.debug("close: %d closing", self.__fd.fileno())
+        _logger.debug('fd: %d closing', self.__fd.fileno())
 
         timeout = 0
         if not self.__error and self.__connected and len(self.__tosend) > 0:

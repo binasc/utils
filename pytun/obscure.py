@@ -22,14 +22,12 @@ def genXorDecode():
 def base64encode(data):
     return base64.b64encode(data)
 
-
 def base64deocde(data):
     def myceil(v, d):
         return v / d + (0 if v % d == 0 else 1)
 
     decoded = base64.b64decode(data[0:len(data) / 4 * 4])
     return (decoded, myceil(len(decoded), 3) * 4)
-
 
 http_request = (
     'POST /upload HTTP/1.1\r\n'
@@ -61,7 +59,8 @@ def genHttpEncode(request):
             remain[0] = 0
 
         while len(data) > 0:
-            remain[0] = 64 * 1024
+            #remain[0] = 2 * 1024
+            remain[0] = 2 * 1024
             http = http_request if request else http_response
             tosend += http + str(remain[0]) + '\r\n\r\n'
             if len(data) < remain[0]:
@@ -98,20 +97,21 @@ def genHttpDecode():
 
         firstline = True
         httplength = 0
+        contentlength = 0
         while True:
             line, data = getLine(data)
             if line == None:
                 return (None, 0)
-            httplength += len(line) + 2
-            if line != None and firstline:
+            httplength += len(line) + len('\r\n')
+            if firstline:
                 firstline = False
                 continue
-            if line != None and len(line) > 0:
+            if len(line) > 0:
                 header, content = line.split(':')
                 if header.strip().lower() == 'content-length':
-                    remain[0] = int(content.strip())
-            elif len(line) == 0:
-                httplength += 2
+                    contentlength = int(content.strip())
+            else:
+                remain[0] = contentlength
                 data, payloadlength = consumeData(data)
                 return (data, httplength + payloadlength)
     return httpDecode
