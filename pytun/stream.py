@@ -136,7 +136,7 @@ class Stream:
                     try:
                         self.__onReceived(self, processed)
                     except Exception as e:
-                        _logger.error('__onReceived exception')
+                        _logger.error('onReceived: %s', e)
                         raise e
                 else:
                     self.__decode(depth + 1, processed) < 0
@@ -162,8 +162,8 @@ class Stream:
                     return
             try:
                 self.__decode(0, recv)
-            except:
-                _logger.error('__decode exception')
+            except Exception as e:
+                _logger.error('decode: %s', e)
                 self.__error = True
                 self.__closeAgain()
         self.close()

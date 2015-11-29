@@ -37,10 +37,11 @@ class Acceptor:
                 self.__fd.close()
                 return
         try:
-            self.__onAccepted(Stream(conn))
-        except:
-            _logger.warn('something wrong here!!!')
-            pass
+            newstream = Stream(conn)
+            self.__onAccepted(newstream)
+        except Exception as e:
+            _logger.warn('onAccepted: %s', e)
+            newstream.close()
 
     def setOnAccepted(self, onAccepted):
         self.__onAccepted = onAccepted

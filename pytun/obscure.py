@@ -59,8 +59,7 @@ def genHttpEncode(request):
             remain[0] = 0
 
         while len(data) > 0:
-            #remain[0] = 2 * 1024
-            remain[0] = 2 * 1024
+            remain[0] = 64 * 1024
             http = http_request if request else http_response
             tosend += http + str(remain[0]) + '\r\n\r\n'
             if len(data) < remain[0]:
