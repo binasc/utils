@@ -83,6 +83,9 @@ class Stream:
             self.beginReceiving()
 
     def connect(self, addr, port):
+        if self.__cev == None:
+            return
+
         self.__wev.setHandler(lambda ev: self.__checkConnected())
         try:
             self.__fd.connect((addr, port))
@@ -123,6 +126,9 @@ class Stream:
             self.__closeAgain()
 
     def send(self, data):
+        if self.__cev == None:
+            return
+
         if len(self.__tosend) == 0 and self.__connected:
             Event.addEvent(self.__wev)
         for encoder in self.__encoders:
@@ -172,6 +178,8 @@ class Stream:
                 self.__closeAgain()
 
     def beginReceiving(self):
+        if self.__cev == None:
+            return
         Event.addEvent(self.__rev)
 
     def stopReceiving(self):
