@@ -59,7 +59,7 @@ class Stream:
         self.__onClosed = onClosed
 
     def __checkConnected(self):
-        _logger.debug('__onConnected')
+        _logger.debug('__checkConnected')
         err = self.__fd.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
         if err != 0:
             self.__error = True
@@ -74,8 +74,8 @@ class Stream:
         if self.__onConnected != None:
             try:
                 self.__onConnected()
-            except:
-                _logger.error('__onConnected exception')
+            except Exception as e:
+                _logger.error('__checkConnected: %s', e)
                 self.__error = True
                 self.__closeAgain()
                 return
@@ -83,6 +83,7 @@ class Stream:
             self.beginReceiving()
 
     def connect(self, addr, port):
+        _logger.debug('connect')
         if self.__cev != None:
             return
 
@@ -126,6 +127,7 @@ class Stream:
             self.__closeAgain()
 
     def send(self, data):
+        _logger.debug('send')
         if self.__cev != None:
             return
 
@@ -178,11 +180,13 @@ class Stream:
                 self.__closeAgain()
 
     def beginReceiving(self):
+        _logger.debug('beginReceiving')
         if self.__cev != None:
             return
         Event.addEvent(self.__rev)
 
     def stopReceiving(self):
+        _logger.debug('stopReceiving')
         Event.delEvent(self.__rev)
 
     def appendSendHandler(self, handler):
@@ -202,6 +206,7 @@ class Stream:
                 pass
 
     def __closeAgain(self):
+        _logger.debug('__closeAgain')
         if self.__cev != None:
             self.__cev.delTimer()
             self.__cev = None
