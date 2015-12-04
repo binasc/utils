@@ -29,6 +29,7 @@ class Stream:
         if conn == None:
             self.__fd = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.__fd.setblocking(False)
+            _logger.debug('fd: %d created', self.__fd.fileno())
         else:
             self.__fd = conn 
             self.__connected = True
@@ -198,6 +199,8 @@ class Stream:
     def __onClose(self):
         _logger.debug('__onClose')
         _logger.debug('fd: %d closed', self.__fd.fileno())
+        # in case of timeout happened
+        Event.delEvent(self.__wev)
         self.__fd.close()
         if self.__onClosed != None:
             try:

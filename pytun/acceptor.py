@@ -32,7 +32,7 @@ class Acceptor:
         while True:
             try:
                 sock, addr = self.__fd.accept()
-                _logger.debug('fd: %d accept fd :%d', self.__fd.fileno(), sock.fileno())
+                _logger.debug('fd: %d accept fd: %d', self.__fd.fileno(), sock.fileno())
                 sock.setblocking(False)
             except socket.error as msg:
                 if msg.errno != errno.EAGAIN and msg.errno != errno.EINPROGRESS:
@@ -44,7 +44,7 @@ class Acceptor:
                 try:
                     self.__onAccepted(newstream)
                 except Exception as e:
-                    _logger.warn('onAccepted: %s', e)
+                    _logger.error('onAccepted: %s', e)
                     newstream.close()
 
     def setOnAccepted(self, onAccepted):

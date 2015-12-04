@@ -19,6 +19,12 @@ class Epoll:
         self.__fd = select.epoll()
 
     @staticmethod
+    def debugPrint():
+        print("read: " + str(Epoll.__epoll.__registered_read))
+        print("write: " + str(Epoll.__epoll.__registered_write))
+        print("mask: " + str(Epoll.__epoll.__fd_mask))
+
+    @staticmethod
     def init():
         Epoll.__epoll = Epoll()
         # only one instance is allowed
@@ -65,9 +71,12 @@ class Epoll:
             del self.__registered_read[fd]
 
         if fd in self.__registered_write or fd in self.__registered_read:
+            assert self.__fd_mask[fd] != 0
             self.__fd.modify(fd, mask)
             self.__fd_mask[fd] = mask
         else:
+            #assert self.__fd_mask[fd] == 0
+            assert mask == 0
             self.__fd.unregister(fd)
             del self.__fd_mask[fd]
 
@@ -78,6 +87,8 @@ class Epoll:
             if ev_type & select.EPOLLOUT:
                 if fd in self.__registered_write:
                     self.__ready.append(self.__registered_write[fd])
+                else:
+                    None.foo()
             elif ev_type & select.EPOLLIN:
                 if fd in self.__registered_read:
                     self.__ready.append(self.__registered_read[fd])
