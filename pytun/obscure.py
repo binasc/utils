@@ -1,6 +1,27 @@
 import base64
+import struct
 
 key = bytearray('\x71\x56\x03\xa9')
+
+def packData(data):
+    remain = len(data)
+    sent = 0
+    out = ''
+    while remain > 0:
+        tosend = min(remain, 65536)
+        out += struct.pack('!H', tosend - 1) + data[sent:sent+tosend]
+        remain -= tosend
+        sent += tosend
+        
+    return out
+
+def unpackData(data):
+    if len(data) < 2:
+        return ('', 0)
+    size = struct.unpack('!H', data[:2])[0] + 1
+    if len(data) < 2 + size:
+        return ('', 0)
+    return (data[2:2+size], 2 + size)
 
 def genXorEncode():
     current = [0]

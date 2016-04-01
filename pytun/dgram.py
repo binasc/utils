@@ -5,34 +5,30 @@ from event import Event
 from collections import deque
 import logging
 
-_logger = logging.getLogger('Stream')
+_logger = logging.getLogger('Dgram')
 _logger.setLevel(logging.DEBUG)
 
-class Stream:
+class Dgram:
 
-    def __init__(self, conn = None):
-        self.__connected = False
+    def __init__(self):
         self.__tosend = deque()
         self.__rev = None
         self.__wev = None
         self.__cev = None
+        self.__timeout = 0
+        self.__timeoutEv = None
 
         self.__encoders = []
         self.__decoders = [(lambda data: (data, len(data)), [''])]
 
         self.__error = False
 
-        self.__onConnected = None
-        self.__onReceived = None
+        self.__onReceivedFrom = None
         self.__onClosed = None
 
-        if conn == None:
-            self.__fd = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.__fd.setblocking(False)
-            _logger.debug('fd: %d created', self.__fd.fileno())
-        else:
-            self.__fd = conn 
-            self.__connected = True
+        self.__fd = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.__fd.setblocking(False)
+        self.__fd.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
         self.__wev = Event()
         self.__wev.setWrite(True)
@@ -50,95 +46,51 @@ class Stream:
     def __eq__(self, another):
         return self.__fd.fileno() == another.__fd.fileno()
 
-    def setOnConnected(self, onConnected):
-        self.__onConnected = onConnected
-
-    def setOnReceived(self, onReceived):
-        self.__onReceived = onReceived
+    def setOnReceivedFrom(self, onReceivedFrom):
+        self.__onReceivedFrom = onReceivedFrom
 
     def setOnClosed(self, onClosed):
         self.__onClosed = onClosed
 
-    def __checkConnected(self):
-        _logger.debug('__checkConnected')
-        err = self.__fd.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
-        if err != 0:
-            self.__error = True
-            self.__closeAgain()
-            return
-
-        self.__connected = True
-        self.__wev.setHandler(lambda ev: self.__onSend())
-        if len(self.__tosend) == 0:
-            Event.delEvent(self.__wev)
-            
-        if self.__onConnected != None:
-            try:
-                self.__onConnected()
-            except Exception as e:
-                _logger.error('__checkConnected: %s', e)
-                self.__error = True
-                self.__closeAgain()
-                return
-        else:
-            self.beginReceiving()
-
-    def connect(self, addr, port):
-        _logger.debug('connect')
-        if self.__cev != None:
-            return
-
-        self.__wev.setHandler(lambda ev: self.__checkConnected())
-        try:
-            self.__fd.connect((addr, port))
-        except socket.error as msg:
-            if msg.errno != errno.EAGAIN and msg.errno != errno.EINPROGRESS:
-                _logger.error('fd: %d, connect: %s', self.__fd.fileno(), os.strerror(msg.errno))
-                self.__error = True
-                self.__closeAgain()
-            else:
-                Event.addEvent(self.__wev)
-            return
-        else:
-            timer = Event.addTimer(0)
-            timer.setHandler(lambda ev: self.__wev.getHandler()(self.__wev))
-
+    def bind(self, addr, port):
+        self.__fd.bind((addr, port))
 
     def __onSend(self):
         _logger.debug('__onSend')
         while len(self.__tosend) > 0:
-            data = self.__tosend.popleft()
+            data, addr = self.__tosend.popleft()
             try:
-                sent = self.__fd.send(data)
-                _logger.debug('fd: %d sent %d bytes', self.__fd.fileno(), sent)
+                sent = self.__fd.sendto(data, addr)
+                _logger.debug('fd: %d sent %d bytes to %s:%d', self.__fd.fileno(), sent, addr[0], addr[1])
                 if sent < len(data):
                     _logger.debug('fd: %d sent less than %d bytes', self.__fd.fileno(), len(data))
-                    self.__tosend.appendleft(data[sent:])
+                    self.__tosend.appendleft((data[sent:], addr))
             except socket.error as msg:
                 if msg.errno != errno.EAGAIN and msg.errno != errno.EINPROGRESS:
                     _logger.error('fd: %d, send: %s', self.__fd.fileno(), os.strerror(msg.errno))
                     self.__error = True
                     self.__closeAgain()
                 else:
-                    self.__tosend.appendleft(data)
+                    self.__tosend.appendleft((data, addr))
                 return
 
         Event.delEvent(self.__wev)
         if self.__cev != None:
             self.__closeAgain()
 
-    def send(self, data):
+    def sendto(self, data, addr):
         _logger.debug('send')
         if self.__cev != None:
             return
 
-        if len(self.__tosend) == 0 and self.__connected:
+        if len(self.__tosend) == 0:
             Event.addEvent(self.__wev)
         for encoder in self.__encoders:
             data = encoder(data)
-        self.__tosend.append(data)
+        self.__tosend.append((data, addr))
+        self.refreshTimer()
 
-    def __decode(self, depth, data):
+    def __decode(self, depth, data, addr):
         decoder, remain = self.__decoders[depth]
         remain[0] += data
 
@@ -147,7 +99,7 @@ class Stream:
             if processed_bytes > 0:
                 if depth == len(self.__decoders) - 1:
                     try:
-                        self.__onReceived(self, processed)
+                        self.__onReceivedFrom(self, processed, addr)
                     except Exception as e:
                         _logger.error('onReceived: %s', e)
                         raise e
@@ -161,11 +113,12 @@ class Stream:
         _logger.debug('__onReceive')
         while True:
             try:
-                recv = self.__fd.recv(65536)
+                recv, addr = self.__fd.recvfrom(65536)
                 if len(recv) == 0:
                     self.close()
                     return
-                _logger.debug('fd: %d recv %d bytes', self.__fd.fileno(), len(recv))
+                _logger.debug('fd: %d recv %d bytes from %s:%d', self.__fd.fileno(), len(recv), addr[0], addr[1])
+                self.refreshTimer()
             except socket.error as msg:
                 if msg.errno != errno.EAGAIN and msg.errno != errno.EINPROGRESS:
                     _logger.error('fd: %d, recv: %s', self.__fd.fileno(), os.strerror(msg.errno))
@@ -174,7 +127,7 @@ class Stream:
                 return
 
             try:
-                self.__decode(0, recv)
+                self.__decode(0, recv, addr)
             except Exception as e:
                 _logger.error('decode: %s', e)
                 self.__error = True
@@ -201,6 +154,11 @@ class Stream:
         _logger.debug('fd: %d closed', self.__fd.fileno())
         # in case of timeout happened
         Event.delEvent(self.__wev)
+
+        if self.__timeoutEv is not None:
+            self.__timeoutEv.delTimer()
+            self.__timeoutEv = None
+
         self.__fd.close()
         if self.__onClosed != None:
             try:
@@ -222,7 +180,7 @@ class Stream:
         _logger.debug('fd: %d closing', self.__fd.fileno())
 
         timeout = 0
-        if not self.__error and self.__connected and len(self.__tosend) > 0:
+        if not self.__error and len(self.__tosend) > 0:
             timeout = 60000
 
         if timeout == 0:
@@ -231,4 +189,27 @@ class Stream:
         Event.delEvent(self.__rev)
         self.__cev = Event.addTimer(timeout)
         self.__cev.setHandler(lambda ev: self.__onClose())
+
+    def __onTimeout(self):
+        _logger.debug('__onTimeout')
+        self.close()
+
+    def refreshTimer(self):
+        if self.__timeoutEv is None:
+            return
+
+        self.__timeoutEv.delTimer()
+        if self.__timeout > 0:
+            self.__timeoutEv = Event.addTimer(self.__timeout)
+            self.__timeoutEv.setHandler(lambda ev: self.__onTimeout())
+
+    def setTimeout(self, timeout):
+        if self.__timeoutEv is not None:
+            self.__timeoutEv.delTimer()
+            self.__timeoutEv = None
+
+        self.__timeout = timeout
+        if self.__timeout > 0:
+            self.__timeoutEv = Event.addTimer(self.__timeout)
+            self.__timeoutEv.setHandler(lambda ev: self.__onTimeout())
 
