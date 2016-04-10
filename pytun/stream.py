@@ -16,6 +16,9 @@ class Stream:
         self.__rev = None
         self.__wev = None
         self.__cev = None
+        self.__timeout = 0
+        self.__timeoutEv = None
+
 
         self.__encoders = []
         self.__decoders = [(lambda data: (data, len(data)), [''])]
@@ -128,7 +131,7 @@ class Stream:
             self.__closeAgain()
 
     def send(self, data):
-        _logger.debug('send')
+        _logger.debug('sending %d bytes', len(data))
         if self.__cev != None:
             return
 
@@ -137,6 +140,7 @@ class Stream:
         for encoder in self.__encoders:
             data = encoder(data)
         self.__tosend.append(data)
+        self.refreshTimer()
 
     def __decode(self, depth, data):
         decoder, remain = self.__decoders[depth]
@@ -166,6 +170,7 @@ class Stream:
                     self.close()
                     return
                 _logger.debug('fd: %d recv %d bytes', self.__fd.fileno(), len(recv))
+                self.refreshTimer()
             except socket.error as msg:
                 if msg.errno != errno.EAGAIN and msg.errno != errno.EINPROGRESS:
                     _logger.error('fd: %d, recv: %s', self.__fd.fileno(), os.strerror(msg.errno))
@@ -201,6 +206,11 @@ class Stream:
         _logger.debug('fd: %d closed', self.__fd.fileno())
         # in case of timeout happened
         Event.delEvent(self.__wev)
+
+        if self.__timeoutEv is not None:
+            self.__timeoutEv.delTimer()
+            self.__timeoutEv = None
+
         self.__fd.close()
         if self.__onClosed != None:
             try:
@@ -231,4 +241,27 @@ class Stream:
         Event.delEvent(self.__rev)
         self.__cev = Event.addTimer(timeout)
         self.__cev.setHandler(lambda ev: self.__onClose())
+
+    def __onTimeout(self):
+        _logger.debug('__onTimeout')
+        self.close()
+
+    def refreshTimer(self):
+        if self.__timeoutEv is None:
+            return
+
+        self.__timeoutEv.delTimer()
+        if self.__timeout > 0:
+            self.__timeoutEv = Event.addTimer(self.__timeout)
+            self.__timeoutEv.setHandler(lambda ev: self.__onTimeout())
+
+    def setTimeout(self, timeout):
+        if self.__timeoutEv is not None:
+            self.__timeoutEv.delTimer()
+            self.__timeoutEv = None
+
+        self.__timeout = timeout
+        if self.__timeout > 0:
+            self.__timeoutEv = Event.addTimer(self.__timeout)
+            self.__timeoutEv.setHandler(lambda ev: self.__onTimeout())
 

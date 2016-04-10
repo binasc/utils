@@ -1,16 +1,39 @@
 import socket
 import errno
 import os
+import fcntl
+import subprocess
+import struct
 from event import Event
 from collections import deque
 import logging
 
-_logger = logging.getLogger('Dgram')
+_logger = logging.getLogger('TunDevice')
 _logger.setLevel(logging.DEBUG)
 
-class Dgram:
+class TunDevice(object):
 
-    def __init__(self):
+    TUNSETIFF = 0x400454ca
+    IFF_TUN   = 0x0001
+    IFF_TAP   = 0x0002
+    IFF_NO_PI = 0x1000
+
+    def __init__(self, prefix, ip, netmask):
+        TUNMODE = self.IFF_TUN | self.IFF_NO_PI
+
+        self.__fd = os.open('/dev/net/tun', os.O_RDWR)
+
+        flag = fcntl.fcntl(self.__fd, fcntl.F_GETFL)
+        fcntl.fcntl(self.__fd, fcntl.F_SETFL, flag | os.O_NONBLOCK)
+
+        ctlstr = struct.pack('16sH', prefix + '%d', TUNMODE)
+        ifs = fcntl.ioctl(self.__fd, self.TUNSETIFF, ctlstr)
+        self.__ifname = ifs[:16].strip("\x00")
+
+        cmd = 'ifconfig %s %s netmask %s up' % (self.__ifname, ip, netmask)
+        _logger.debug('ifconfig cmd: ' + cmd)
+        subprocess.check_call(cmd, shell=True)
+
         self.__tosend = deque()
         self.__rev = None
         self.__wev = None
@@ -18,79 +41,100 @@ class Dgram:
         self.__timeout = 0
         self.__timeoutEv = None
 
-        self.__encoders = []
-        self.__decoders = [(lambda data: (data, len(data)), [''])]
+        self.__decoders = [(self.__ipv4Decoder, [''])]
 
         self.__error = False
 
-        self.__onReceivedFrom = None
+        self.__onReceived = None
         self.__onClosed = None
-
-        self.__fd = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.__fd.setblocking(False)
-        self.__fd.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
         self.__wev = Event()
         self.__wev.setWrite(True)
-        self.__wev.setFd(self.__fd.fileno())
+        self.__wev.setFd(self.__fd)
         self.__wev.setHandler(lambda ev: self.__onSend())
 
         self.__rev = Event()
         self.__rev.setWrite(False)
-        self.__rev.setFd(self.__fd.fileno())
+        self.__rev.setFd(self.__fd)
         self.__rev.setHandler(lambda ev: self.__onReceive())
 
-    def __hash__(self):
-        return hash(self.__fd.fileno())
-
-    def __eq__(self, another):
-        return self.__fd.fileno() == another.__fd.fileno()
-
-    def setOnReceivedFrom(self, onReceivedFrom):
-        self.__onReceivedFrom = onReceivedFrom
+    def setOnReceived(self, onReceived):
+        self.__onReceived = onReceived
 
     def setOnClosed(self, onClosed):
         self.__onClosed = onClosed
 
-    def bind(self, addr, port):
-        self.__fd.bind((addr, port))
-
     def __onSend(self):
         _logger.debug('__onSend')
         while len(self.__tosend) > 0:
-            data, addr = self.__tosend.popleft()
+            data = self.__tosend.popleft()
             try:
-                sent = self.__fd.sendto(data, addr)
-                _logger.debug('fd: %d sent %d bytes to %s:%d', self.__fd.fileno(), sent, addr[0], addr[1])
+                sent = os.write(self.__fd, data)
+                _logger.debug('fd: %d sent %d bytes', self.__fd, sent)
                 if sent < len(data):
-                    _logger.debug('fd: %d sent less than %d bytes', self.__fd.fileno(), len(data))
-                    self.__tosend.appendleft((data[sent:], addr))
-            except socket.error as msg:
+                    _logger.debug('fd: %d sent less than %d bytes', self.__fd, len(data))
+                    self.__tosend.appendleft(data[sent:])
+            except IOError as msg:
                 if msg.errno != errno.EAGAIN and msg.errno != errno.EINPROGRESS:
-                    _logger.error('fd: %d, send: %s', self.__fd.fileno(), os.strerror(msg.errno))
+                    _logger.error('fd: %d, send: %s', self.__fd, os.strerror(msg.errno))
                     self.__error = True
                     self.__closeAgain()
                 else:
-                    self.__tosend.appendleft((data, addr))
+                    self.__tosend.appendleft(data)
                 return
 
         Event.delEvent(self.__wev)
         if self.__cev != None:
             self.__closeAgain()
 
-    def sendto(self, data, addr):
-        _logger.debug('sendto %s:%d %d bytes', addr[0], addr[1], len(data))
+    def send(self, data):
+        _logger.debug('sending %d bytes', len(data))
         if self.__cev != None:
             return
 
         if len(self.__tosend) == 0:
             Event.addEvent(self.__wev)
-        for encoder in self.__encoders:
-            data = encoder(data)
-        self.__tosend.append((data, addr))
-        self.refreshTimer()
 
-    def __decode(self, depth, data, addr):
+        self.__tosend.append(data)
+
+    @staticmethod
+    def __ipv4Decoder(data):
+        if len(data) < 20:
+            return ('', 0)
+
+        _, _, length = struct.unpack('!BBH', data[:4])
+        if len(data) < length:
+            return ('', 0)
+
+        return (data[:length], length)
+
+    @staticmethod
+    def __parseIpv4(packet):
+    
+        PROTO_TCP = 6
+        PROTO_UDP = 17
+
+        ver_ihl, _, total_length, _, _, protocol, _, sip, dip = struct.unpack('!BBHIBBH4s4s', packet[:20])
+        ihl = ver_ihl & 0x0f
+        ver = (ver_ihl >> 4) & 0x0f
+        #print('version: %d' % ver)
+        #print('total length: %d' % total_length)
+        #print('protocol: %d' % protocol)
+        #print('source ip: ' + socket.inet_ntop(socket.AF_INET, sip))
+        #print('dest ip: ' + socket.inet_ntop(socket.AF_INET, dip))
+        sip = socket.inet_ntop(socket.AF_INET, sip)
+        dip = socket.inet_ntop(socket.AF_INET, dip)
+
+        sport, dport = 0, 0
+        if protocol == PROTO_TCP or protocol == PROTO_UDP:
+            offset = ihl * 4
+            sport, dport = struct.unpack('!HH', packet[offset:offset+4])
+            #print('source port: %d' % sport)
+            #print('dest port: %d' % dport)
+
+        return total_length, (sip, sport), (dip, dport)
+
+    def __decode(self, depth, data):
         decoder, remain = self.__decoders[depth]
         remain[0] += data
 
@@ -99,7 +143,8 @@ class Dgram:
             if processed_bytes > 0:
                 if depth == len(self.__decoders) - 1:
                     try:
-                        self.__onReceivedFrom(self, processed, addr)
+                        _, src, dst = self.__parseIpv4(processed)
+                        self.__onReceived(self, processed, src, dst)
                     except Exception as e:
                         _logger.error('onReceived: %s', e)
                         raise e
@@ -113,21 +158,20 @@ class Dgram:
         _logger.debug('__onReceive')
         while True:
             try:
-                recv, addr = self.__fd.recvfrom(65536)
+                recv = os.read(self.__fd, 65536)
                 if len(recv) == 0:
                     self.close()
                     return
-                _logger.debug('fd: %d recv %d bytes from %s:%d', self.__fd.fileno(), len(recv), addr[0], addr[1])
-                self.refreshTimer()
-            except socket.error as msg:
+                _logger.debug('fd: %d recv %d bytes', self.__fd, len(recv))
+            except OSError as msg:
                 if msg.errno != errno.EAGAIN and msg.errno != errno.EINPROGRESS:
-                    _logger.error('fd: %d, recv: %s', self.__fd.fileno(), os.strerror(msg.errno))
+                    _logger.error('fd: %d, recv: %s', self.__fd, os.strerror(msg.errno))
                     self.__error = True
                     self.__closeAgain()
                 return
 
             try:
-                self.__decode(0, recv, addr)
+                self.__decode(0, recv)
             except Exception as e:
                 _logger.error('decode: %s', e)
                 self.__error = True
@@ -143,15 +187,9 @@ class Dgram:
         _logger.debug('stopReceiving')
         Event.delEvent(self.__rev)
 
-    def appendSendHandler(self, handler):
-        self.__encoders.append(handler)
-
-    def appendReceiveHandler(self, handler):
-        self.__decoders.append((handler, ['']))
-
     def __onClose(self):
         _logger.debug('__onClose')
-        _logger.debug('fd: %d closed', self.__fd.fileno())
+        _logger.debug('fd: %d closed', self.__fd)
         # in case of timeout happened
         Event.delEvent(self.__wev)
 
@@ -159,7 +197,7 @@ class Dgram:
             self.__timeoutEv.delTimer()
             self.__timeoutEv = None
 
-        self.__fd.close()
+        os.close(self.__fd)
         if self.__onClosed != None:
             try:
                 self.__onClosed(self)
@@ -177,7 +215,7 @@ class Dgram:
         _logger.debug('close')
         if self.__cev != None:
             return
-        _logger.debug('fd: %d closing', self.__fd.fileno())
+        _logger.debug('fd: %d closing', self.__fd)
 
         timeout = 0
         if not self.__error and len(self.__tosend) > 0:
@@ -189,27 +227,4 @@ class Dgram:
         Event.delEvent(self.__rev)
         self.__cev = Event.addTimer(timeout)
         self.__cev.setHandler(lambda ev: self.__onClose())
-
-    def __onTimeout(self):
-        _logger.debug('__onTimeout')
-        self.close()
-
-    def refreshTimer(self):
-        if self.__timeoutEv is None:
-            return
-
-        self.__timeoutEv.delTimer()
-        if self.__timeout > 0:
-            self.__timeoutEv = Event.addTimer(self.__timeout)
-            self.__timeoutEv.setHandler(lambda ev: self.__onTimeout())
-
-    def setTimeout(self, timeout):
-        if self.__timeoutEv is not None:
-            self.__timeoutEv.delTimer()
-            self.__timeoutEv = None
-
-        self.__timeout = timeout
-        if self.__timeout > 0:
-            self.__timeoutEv = Event.addTimer(self.__timeout)
-            self.__timeoutEv.setHandler(lambda ev: self.__onTimeout())
 
