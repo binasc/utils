@@ -5,7 +5,7 @@ import event
 from acceptor import Acceptor
 from stream import Stream
 from dgram import Dgram
-from tun import TunDevice
+from tundevice import TunDevice
 import getopt
 import logging
 import struct
