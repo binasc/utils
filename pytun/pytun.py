@@ -10,8 +10,10 @@ import getopt
 import logging
 import struct
 import obscure
+import loglevel
 
 _logger = logging.getLogger('Stream')
+_logger.setLevel(loglevel.gLevel)
 
 AcceptMode = False
 ConnectMode = False

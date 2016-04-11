@@ -1,9 +1,10 @@
 import select
 from event import Event
 import logging
+import loglevel
 
 _logger = logging.getLogger('Epoll')
-_logger.setLevel(logging.WARNING)
+_logger.setLevel(loglevel.gLevel)
 
 class Epoll:
 

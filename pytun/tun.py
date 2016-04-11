@@ -7,9 +7,10 @@ import struct
 from event import Event
 from collections import deque
 import logging
+import loglevel
 
 _logger = logging.getLogger('TunDevice')
-_logger.setLevel(logging.DEBUG)
+_logger.setLevel(loglevel.gLevel)
 
 class TunDevice(object):
 

@@ -4,9 +4,10 @@ import os
 from event import Event
 from collections import deque
 import logging
+import loglevel
 
 _logger = logging.getLogger('Stream')
-_logger.setLevel(logging.DEBUG)
+_logger.setLevel(loglevel.gLevel)
 
 class Stream:
 

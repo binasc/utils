@@ -3,9 +3,10 @@ import errno
 from event import Event
 from stream import Stream
 import logging
+import loglevel
 
 _logger = logging.getLogger('Acceptor')
-_logger.setLevel(logging.DEBUG)
+_logger.setLevel(loglevel.gLevel)
 
 class Acceptor:
 
