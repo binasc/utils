@@ -1,3 +1,4 @@
+import os
 import socket
 import errno
 from event import Event
@@ -13,6 +14,7 @@ class Acceptor:
     def __init__(self):
         self.__rev = None
         self.__onAccepted = None
+        self.__onClosed = None
 
         self.__fd = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.__fd.setblocking(False)
@@ -36,9 +38,16 @@ class Acceptor:
                 _logger.debug('fd: %d accept fd: %d', self.__fd.fileno(), sock.fileno())
                 sock.setblocking(False)
             except socket.error as msg:
+                if msg.errno == errno.ECONNABORTED:
+                    continue
                 if msg.errno != errno.EAGAIN and msg.errno != errno.EINPROGRESS:
                     _logger.error('fd: %d, accept: %s', self.__fd.fileno(), os.strerror(msg.errno))
                     self.__fd.close()
+                    if self.__onClosed != None:
+                        try:
+                            self.__onClosed(self)
+                        except:
+                            pass
                 return
             else:
                 newstream = Stream(sock)
@@ -50,4 +59,7 @@ class Acceptor:
 
     def setOnAccepted(self, onAccepted):
         self.__onAccepted = onAccepted
+
+    def setOnClosed(self, onClosed):
+        self.__onClosed = onClosed
 
