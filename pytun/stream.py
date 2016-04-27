@@ -54,6 +54,10 @@ class Stream:
     def __eq__(self, another):
         return self.__fd.fileno() == another.__fd.fileno()
 
+    def setBufferSize(self, bsize):
+        self.__fd.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, bsize)
+        self.__fd.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, bsize)
+
     def setOnConnected(self, onConnected):
         self.__onConnected = onConnected
 
@@ -216,8 +220,8 @@ class Stream:
         if self.__onClosed != None:
             try:
                 self.__onClosed(self)
-            except:
-                pass
+            except Exception as ex:
+                _logger.warning('Exception on closed: %s', str(ex))
 
     def __closeAgain(self):
         _logger.debug('__closeAgain')

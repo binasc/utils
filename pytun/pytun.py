@@ -9,11 +9,15 @@ from tundevice import TunDevice
 import getopt
 import logging
 import struct
+import subprocess
 import obscure
 import loglevel
 
 _logger = logging.getLogger('Stream')
 _logger.setLevel(loglevel.gLevel)
+
+# 1MB
+BUFFSIZE = 1024 ** 2
 
 AcceptMode = False
 ConnectMode = False
@@ -31,7 +35,10 @@ def processAcceptSideArgument(arg):
     return serverlist
 
 to2tun = {}
-dst2tunnel = {}
+
+MAX_CONNECTION = 500
+src2Stream = [None] * MAX_CONNECTION
+dst2stream = [None] * MAX_CONNECTION
 
 def acceptSideReceiveTo(self, data):
     args = data.split(':')
@@ -91,15 +98,22 @@ def acceptSideReceiveTo(self, data):
         srcPort = args[4]
         tunnel = self
 
-        dst2tunnel[srcAddr + srcPort] = tunnel
+        srcSid = hash(srcAddr + ':' + srcPort) % MAX_CONNECTION
+        dst2stream[srcSid] = tunnel
 
         def tunDeviceReceived(self, data, src, dst):
             dstAddr, dstPort = dst
-            if dstAddr + str(dstPort) in dst2tunnel:
-                tunnel = dst2tunnel[dstAddr + str(dstPort)]
+            dstSid  = hash(dstAddr + ':' + str(dstPort)) % MAX_CONNECTION
+            if dst2stream[dstSid] is not None:
+                tunnel = dst2stream[dstSid]
                 tunnel.send(data)
             else:
-                _logger.warning('unknown dst %s:%s', dstAddr, str(dstPort))
+                dstSid  = hash(dstAddr + ':0') % MAX_CONNECTION
+                if dst2stream[dstSid] is not None:
+                    tunnel = dst2stream[dstSid]
+                    tunnel.send(data)
+                else:
+                    _logger.warning('unknown dst %s:%s', dstAddr, str(dstPort))
 
         addrPort = addr + str(port)
         if addrPort in to2tun:
@@ -116,7 +130,7 @@ def acceptSideReceiveTo(self, data):
             tunDevice.send(data)
 
         def tunDeviceTunnelClosed(self):
-            del dst2tunnel[srcAddr + srcPort]
+            dst2stream[srcSid] = None
 
         tunnel.setOnReceived(tunDeviceTunnelReceived)
         tunnel.setOnClosed(tunDeviceTunnelClosed)
@@ -154,6 +168,7 @@ def acceptSideAcceptor(tunnel):
             return (ret, length)
         return getToHandler
 
+    tunnel.setBufferSize(BUFFSIZE)
     tunnel.appendSendHandler(obscure.packData)
     tunnel.appendSendHandler(obscure.genXorEncode())
     tunnel.appendSendHandler(obscure.base64encode)
@@ -165,6 +180,10 @@ def acceptSideAcceptor(tunnel):
     tunnel.appendReceiveHandler(genOnToHandler())
     tunnel.setOnReceived(acceptSideReceiveTo)
     tunnel.beginReceiving()
+
+def acceptorClosed(self):
+    _logger.exception('Acceptor closed!')
+    sys.exit(-1)
 
 def processConnectSideArgument(arg):
     serverlist = []
@@ -184,6 +203,20 @@ def processConnectSideArgument(arg):
         serverlist.append((addr, port, typ3, (via, to)))
     return serverlist
 
+def _initStream(addr, port):
+    tunnel = Stream()
+    tunnel.connect(addr, port)
+    tunnel.appendSendHandler(obscure.packData)
+    tunnel.appendSendHandler(obscure.genXorEncode())
+    tunnel.appendSendHandler(obscure.base64encode)
+    tunnel.appendSendHandler(obscure.genHttpEncode(True))
+    tunnel.appendReceiveHandler(obscure.genHttpDecode())
+    tunnel.appendReceiveHandler(obscure.base64deocde)
+    tunnel.appendReceiveHandler(obscure.genXorDecode())
+    tunnel.appendReceiveHandler(obscure.unpackData)
+    tunnel.setBufferSize(BUFFSIZE)
+    return tunnel
+
 def genConnectSideAcceptor(via, to):
     def generateTo(to):
         addr, port = to
@@ -191,16 +224,7 @@ def genConnectSideAcceptor(via, to):
 
     def connectSideAcceptor(front):
         addr, port = via
-        tunnel = Stream()
-        tunnel.connect(addr, port)
-        tunnel.appendSendHandler(obscure.packData)
-        tunnel.appendSendHandler(obscure.genXorEncode())
-        tunnel.appendSendHandler(obscure.base64encode)
-        tunnel.appendSendHandler(obscure.genHttpEncode(True))
-        tunnel.appendReceiveHandler(obscure.genHttpDecode())
-        tunnel.appendReceiveHandler(obscure.base64deocde)
-        tunnel.appendReceiveHandler(obscure.genXorDecode())
-        tunnel.appendReceiveHandler(obscure.unpackData)
+        tunnel = _initStream(addr, port)
         tunnel.send(generateTo(to))
 
         def tunnelReceived(self, data):
@@ -238,16 +262,7 @@ def genConnectSideReceiver(via, to):
             tunnel = addr2Stream[addrPort]
         else:
             addr, port = via
-            tunnel = Stream()
-            tunnel.connect(addr, port)
-            tunnel.appendSendHandler(obscure.packData)
-            tunnel.appendSendHandler(obscure.genXorEncode())
-            tunnel.appendSendHandler(obscure.base64encode)
-            tunnel.appendSendHandler(obscure.genHttpEncode(True))
-            tunnel.appendReceiveHandler(obscure.genHttpDecode())
-            tunnel.appendReceiveHandler(obscure.base64deocde)
-            tunnel.appendReceiveHandler(obscure.genXorDecode())
-            tunnel.appendReceiveHandler(obscure.unpackData)
+            tunnel = _initStream(addr, port)
             tunnel.send(generateTo(to))
 
             _logger.debug('new Dgram from: %s:%d', addr, port)
@@ -266,47 +281,53 @@ def genConnectSideReceiver(via, to):
 
     return connectSideReceiver
 
-src2Stream = {}
-
 def genConnectSideMultiplex(via, to):
-    def generateTo(to, src):
-        toAddr, toPort = to
+    viaAddr, viaPort = via
+    toAddr, toPort = to
+
+    def generateTo(src):
         srcAddr, srcPort = src
         return struct.pack('!HH%dsHH%dsH' % (len(toAddr), len(srcAddr)),
                            6 + len(toAddr), 3, toAddr, toPort,
                            4 + len(srcAddr), srcAddr, srcPort)
 
     def connectSideMultiplex(front, data, src, dst):
-        addr, port = src 
-        addrPort = addr + ':' + str(port)
+        srcAddr, srcPort = src 
+        addrPort = srcAddr + ':' + str(srcPort)
 
-        if addrPort in src2Stream:
-            tunnel = src2Stream[addrPort]
+        sid = hash(addrPort) % MAX_CONNECTION
+        if src2Stream[sid] is not None:
+            tunnel = src2Stream[sid]
         else:
-            addr, port = via
-            tunnel = Stream()
-            tunnel.connect(addr, port)
-            tunnel.appendSendHandler(obscure.packData)
-            tunnel.appendSendHandler(obscure.genXorEncode())
-            tunnel.appendSendHandler(obscure.base64encode)
-            tunnel.appendSendHandler(obscure.genHttpEncode(True))
-            tunnel.appendReceiveHandler(obscure.genHttpDecode())
-            tunnel.appendReceiveHandler(obscure.base64deocde)
-            tunnel.appendReceiveHandler(obscure.genXorDecode())
-            tunnel.appendReceiveHandler(obscure.unpackData)
-            tunnel.send(generateTo(to, src))
+            tunnel = _initStream(viaAddr, viaPort)
+            src2Stream[sid] = tunnel
+            _logger.debug('new TunCon from: %s:%d', srcAddr, srcPort)
 
-            _logger.debug('new TunCon from: %s:%d', addr, port)
-            src2Stream[addrPort] = tunnel
+            tunnel.send(generateTo(src))
 
-            # 10 min
-            tunnel.setTimeout(10 * 60 * 1000)
+            if srcPort == 0:
+                tunnel.setTimeout(60 * 1000)
+            else:
+                tunnel.setTimeout(10 * 60 * 1000)
 
             def tunnelReceived(self, data):
                 front.send(data)
 
+            def reconnectHandler(ev):
+                tunnel = _initStream(viaAddr, viaPort)
+                src2Stream[sid] = tunnel
+                _logger.debug('reconnect TunCon from: %s:%d', srcAddr, srcPort)
+                tunnel.send(generateTo(src))
+                tunnel.setTimeout(60 * 1000)
+                tunnel.setOnReceived(tunnelReceived)
+                tunnel.setOnClosed(tunnelClosed)
+
             def tunnelClosed(self):
-                del src2Stream[addrPort]
+                if srcPort == 0:
+                    reconnectEv = event.Event.addTimer(500)
+                    reconnectEv.setHandler(reconnectHandler)
+                else:
+                    src2Stream[sid] = None
 
             tunnel.setOnReceived(tunnelReceived)
             tunnel.setOnClosed(tunnelClosed)
@@ -345,6 +366,7 @@ Accept Side: -A addr0:port0,addr1:port1,...
             _logger.debug('listening at: %s:%d', addr, port)
             acceptor.listen()
             acceptor.setOnAccepted(acceptSideAcceptor)
+            acceptor.setOnClosed(acceptorClosed)
         else:
             via, to = arg
             if type_ == 'tcp':
@@ -352,6 +374,7 @@ Accept Side: -A addr0:port0,addr1:port1,...
                 acceptor.bind(addr, port)
                 acceptor.listen()
                 acceptor.setOnAccepted(genConnectSideAcceptor(via, to))
+                acceptor.setOnClosed(acceptorClosed)
             elif type_ == 'udp':
                 acceptor = Dgram()
                 acceptor.bind(addr, port)
@@ -362,6 +385,8 @@ Accept Side: -A addr0:port0,addr1:port1,...
                 acceptor = TunDevice('tun', addr, '255.255.255.0')
                 acceptor.setOnReceived(genConnectSideMultiplex(via, to))
                 acceptor.beginReceiving()
+                
+                subprocess.Popen(['ping', '-c', '1', to[0]])
 
     event.Event.processLoop()
 

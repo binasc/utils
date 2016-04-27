@@ -31,7 +31,7 @@ class TunDevice(object):
         ifs = fcntl.ioctl(self.__fd, self.TUNSETIFF, ctlstr)
         self.__ifname = ifs[:16].strip("\x00")
 
-        cmd = 'ifconfig %s %s netmask %s up' % (self.__ifname, ip, netmask)
+        cmd = 'ifconfig %s %s netmask %s mtu 9000 up' % (self.__ifname, ip, netmask)
         _logger.debug('ifconfig cmd: ' + cmd)
         subprocess.check_call(cmd, shell=True)
 
