@@ -11,7 +11,7 @@
 #include "route.h"
 #include "log.h"
 
-#define TRAP_DNS "1.1.1.1"
+#define TRAP_DNS "8.8.4.1"
 #define TRAP_DNS_PORT 53
 #define DNS_TIMEOUT 10000
 
@@ -32,10 +32,57 @@ void on_timeout(nl_event_t *ev)
     nl_dgram_close(d);
 }
 
+void on_dirty_received_echo(nl_dgram_t *d, nl_packet_t *p);
+void on_clean_timeout(nl_event_t *ev)
+{
+    int rc;
+    nl_dgram_t *d, *resolver;
+    nl_packet_t tosend, *request;
+
+    d = ev->data;
+    request = d->data;
+
+    resolver = malloc(sizeof(nl_dgram_t));
+    if (resolver == NULL) {
+    }
+    rc = nl_dgram(resolver);
+    if (rc < 0) {
+    }
+    resolver->on_received = on_dirty_received_echo;
+    resolver->on_closed = on_closed;
+    resolver->data = request;
+
+    nl_dgram_resume_receiving(resolver);
+
+    tosend.buf = request->buf;
+    nl_address_setname(&tosend.addr, ddns);
+    nl_address_setport(&tosend.addr, ddns_port);
+    nl_dgram_send(resolver, &tosend);
+
+    resolver->timeout_ev.handler = on_timeout;
+    resolver->timeout_ev.data = resolver;
+    nl_event_add_timer(&resolver->timeout_ev, DNS_TIMEOUT);
+
+    nl_dgram_close(d);
+}
+
 void on_clean_received(nl_dgram_t *d, nl_packet_t *p)
 {
     nl_packet_t tosend, *request;
     log_trace("on_clean_received");
+
+    request = d->data;
+    tosend.buf = p->buf;
+    tosend.addr = request->addr;
+    nl_dgram_send(&s_svr, &tosend);
+    free(request);
+
+    nl_dgram_close(d);
+}
+
+void on_dirty_received_echo(nl_dgram_t *d, nl_packet_t *p)
+{
+    nl_packet_t tosend, *request;
 
     request = d->data;
     tosend.buf = p->buf;
@@ -103,7 +150,7 @@ void on_dirty_received(nl_dgram_t *d, nl_packet_t *p)
         nl_address_setport(&tosend.addr, cdns_port);
         nl_dgram_send(resolver, &tosend);
 
-        resolver->timeout_ev.handler = on_timeout;
+        resolver->timeout_ev.handler = on_clean_timeout;
         resolver->timeout_ev.data = resolver;
         nl_event_add_timer(&resolver->timeout_ev, DNS_TIMEOUT);
     }
@@ -172,7 +219,7 @@ void on_trap_received(nl_dgram_t *d, nl_packet_t *p)
     nl_address_setport(&tosend.addr, cdns_port);
     nl_dgram_send(resolver, &tosend);
 
-    resolver->timeout_ev.handler = on_timeout;
+    resolver->timeout_ev.handler = on_clean_timeout;
     resolver->timeout_ev.data = resolver;
     nl_event_add_timer(&resolver->timeout_ev, 10000);
 
@@ -216,21 +263,44 @@ void on_svr_received(nl_dgram_t *d, nl_packet_t *p)
     rc = nl_dgram(resolver);
     if (rc < 0) {
     }
-    resolver->on_received = on_trap_received;
-    resolver->on_closed = on_closed;
-    resolver->data = request;
 
-    nl_dgram_resume_receiving(resolver);
+    size_t slen = strlen(name);
+#define GNAME "google.com."
+    if (slen >=  strlen(GNAME) && strcmp(name + (slen - strlen(GNAME)), GNAME) == 0) {
+        log_debug("resolve google name");
+        resolver->on_received = on_clean_received;
+        resolver->on_closed = on_closed;
+        resolver->data = request;
 
-    tosend.buf = p->buf;
-    nl_address_setname(&tosend.addr, TRAP_DNS);
-    nl_address_setport(&tosend.addr, TRAP_DNS_PORT);
-    nl_dgram_send(resolver, &tosend);
+        nl_dgram_resume_receiving(resolver);
 
-    resolver->timeout_ev.handler = on_trap_timeout;
-    resolver->timeout_ev.data = resolver;
-    // TODO: optimise by network
-    nl_event_add_timer(&resolver->timeout_ev, 10);
+        tosend.buf = p->buf;
+        nl_address_setname(&tosend.addr, cdns);
+        nl_address_setport(&tosend.addr, cdns_port);
+        nl_dgram_send(resolver, &tosend);
+
+        resolver->timeout_ev.handler = on_clean_timeout;
+        resolver->timeout_ev.data = resolver;
+        // TODO: optimise by network
+        nl_event_add_timer(&resolver->timeout_ev, 10000);
+    }
+    else {
+        resolver->on_received = on_trap_received;
+        resolver->on_closed = on_closed;
+        resolver->data = request;
+
+        nl_dgram_resume_receiving(resolver);
+
+        tosend.buf = p->buf;
+        nl_address_setname(&tosend.addr, TRAP_DNS);
+        nl_address_setport(&tosend.addr, TRAP_DNS_PORT);
+        nl_dgram_send(resolver, &tosend);
+
+        resolver->timeout_ev.handler = on_trap_timeout;
+        resolver->timeout_ev.data = resolver;
+        // TODO: optimise by network
+        nl_event_add_timer(&resolver->timeout_ev, 10);
+    }
 }
 
 int main(int argc, char *argv[])
