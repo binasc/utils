@@ -10,10 +10,15 @@
 #include "dns.h"
 #include "route.h"
 #include "log.h"
+#include "address.h"
 
 #define TRAP_DNS "8.8.4.1"
 #define TRAP_DNS_PORT 53
-#define DNS_TIMEOUT 10000
+
+// TODO: optimise by network
+#define TDNS_TIMEOUT 50
+#define DDNS_TIMEOUT 100
+#define CDNS_TIMEOUT 1000
 
 static nl_dgram_t s_svr;
 static nl_address_t s_addr;
@@ -23,32 +28,53 @@ static short ddns_port, cdns_port;
 
 void on_closed(nl_dgram_t *d)
 {
+    log_trace("on_closed");
+    // request
+    if (d->data != NULL) {
+        free(d->data);
+        d->data = NULL;
+    }
     free(d);
 }
 
-void on_timeout(nl_event_t *ev)
+void on_last_timeout(nl_event_t *ev)
 {
-    nl_dgram_t *d = ev->data;
+    log_trace("on_last_timeout");
+    nl_dgram_close(ev->data);
+}
+
+void on_last_received(nl_dgram_t *d, nl_packet_t *p)
+{
+    nl_packet_t tosend, *request;
+    log_trace("on_last_received");
+
+
+    nl_address_t addr;
+    nl_address_setname(&addr, cdns);
+    nl_address_setport(&addr, cdns_port);
+    if (nl_address_equal(&p->addr, &addr) != 0) {
+        log_debug("ignore packet from unexpected source");
+        return;
+    }
+
+    request = d->data;
+    tosend.buf = p->buf;
+    tosend.addr = request->addr;
+    nl_dgram_send(&s_svr, &tosend);
+
     nl_dgram_close(d);
 }
 
-void on_dirty_received_echo(nl_dgram_t *d, nl_packet_t *p);
 void on_clean_timeout(nl_event_t *ev)
 {
-    int rc;
-    nl_dgram_t *d, *resolver;
+    nl_dgram_t *resolver;
     nl_packet_t tosend, *request;
+    log_trace("on_clean_timeout");
 
-    d = ev->data;
-    request = d->data;
+    resolver = ev->data;
+    request = resolver->data;
 
-    resolver = malloc(sizeof(nl_dgram_t));
-    if (resolver == NULL) {
-    }
-    rc = nl_dgram(resolver);
-    if (rc < 0) {
-    }
-    resolver->on_received = on_dirty_received_echo;
+    resolver->on_received = on_last_received;
     resolver->on_closed = on_closed;
     resolver->data = request;
 
@@ -59,38 +85,10 @@ void on_clean_timeout(nl_event_t *ev)
     nl_address_setport(&tosend.addr, ddns_port);
     nl_dgram_send(resolver, &tosend);
 
-    resolver->timeout_ev.handler = on_timeout;
+    resolver->timeout_ev.handler = on_last_timeout;
     resolver->timeout_ev.data = resolver;
-    nl_event_add_timer(&resolver->timeout_ev, DNS_TIMEOUT);
-
-    nl_dgram_close(d);
-}
-
-void on_clean_received(nl_dgram_t *d, nl_packet_t *p)
-{
-    nl_packet_t tosend, *request;
-    log_trace("on_clean_received");
-
-    request = d->data;
-    tosend.buf = p->buf;
-    tosend.addr = request->addr;
-    nl_dgram_send(&s_svr, &tosend);
-    free(request);
-
-    nl_dgram_close(d);
-}
-
-void on_dirty_received_echo(nl_dgram_t *d, nl_packet_t *p)
-{
-    nl_packet_t tosend, *request;
-
-    request = d->data;
-    tosend.buf = p->buf;
-    tosend.addr = request->addr;
-    nl_dgram_send(&s_svr, &tosend);
-    free(request);
-
-    nl_dgram_close(d);
+    nl_event_del_timer(&resolver->timeout_ev);
+    nl_event_add_timer(&resolver->timeout_ev, DDNS_TIMEOUT);
 }
 
 void on_dirty_received(nl_dgram_t *d, nl_packet_t *p)
@@ -99,9 +97,8 @@ void on_dirty_received(nl_dgram_t *d, nl_packet_t *p)
     dmsg_t m;
     dmsg_rr rr;
     nl_packet_t tosend, *request;
-    nl_dgram_t *resolver;
-
     log_trace("on_dirty_received");
+
     rc = dmsg_new(&m, p->buf.buf, p->buf.len);
     if (rc < 0) {
         log_error("dms_create() failed");
@@ -125,21 +122,20 @@ void on_dirty_received(nl_dgram_t *d, nl_packet_t *p)
     if (i < dmsg_get_ancount(&m)) {
         // send back
         log_debug("found! use dirty dns server result");
+
         tosend.buf = p->buf;
         tosend.addr = request->addr;
         nl_dgram_send(&s_svr, &tosend);
-        free(request);
+
+        nl_dgram_close(d);
     }
     else {
         // continue resolve
+        nl_dgram_t *resolver;
         log_debug("not found! try resolving by clean dns server");
-        resolver = malloc(sizeof(nl_dgram_t));
-        if (resolver == NULL) {
-        }
-        rc = nl_dgram(resolver);
-        if (rc < 0) {
-        }
-        resolver->on_received = on_clean_received;
+        resolver = d;
+
+        resolver->on_received = on_last_received;
         resolver->on_closed = on_closed;
         resolver->data = request;
 
@@ -152,29 +148,20 @@ void on_dirty_received(nl_dgram_t *d, nl_packet_t *p)
 
         resolver->timeout_ev.handler = on_clean_timeout;
         resolver->timeout_ev.data = resolver;
-        nl_event_add_timer(&resolver->timeout_ev, DNS_TIMEOUT);
+        nl_event_del_timer(&resolver->timeout_ev);
+        nl_event_add_timer(&resolver->timeout_ev, CDNS_TIMEOUT);
     }
-
-    nl_dgram_close(d);
-    //dmsg_debug_print(&m);
 }
 
 void on_trap_timeout(nl_event_t *ev)
 {
-    int rc;
-    nl_dgram_t *d, *resolver;
+    nl_dgram_t *resolver;
     nl_packet_t tosend, *request;
-
-    d = ev->data;
-    request = d->data;
-
     log_trace("on_trap_timeout");
-    resolver = malloc(sizeof(nl_dgram_t));
-    if (resolver == NULL) {
-    }
-    rc = nl_dgram(resolver);
-    if (rc < 0) {
-    }
+
+    resolver = ev->data;
+    request = resolver->data;
+
     resolver->on_received = on_dirty_received;
     resolver->on_closed = on_closed;
     resolver->data = request;
@@ -186,29 +173,22 @@ void on_trap_timeout(nl_event_t *ev)
     nl_address_setport(&tosend.addr, ddns_port);
     nl_dgram_send(resolver, &tosend);
 
-    resolver->timeout_ev.handler = on_timeout;
+    resolver->timeout_ev.handler = on_last_timeout;
     resolver->timeout_ev.data = resolver;
-    nl_event_add_timer(&resolver->timeout_ev, DNS_TIMEOUT);
-
-    nl_dgram_close(d);
+    nl_event_del_timer(&resolver->timeout_ev);
+    nl_event_add_timer(&resolver->timeout_ev, DDNS_TIMEOUT);
 }
 
 void on_trap_received(nl_dgram_t *d, nl_packet_t *p)
 {
-    int rc;
     nl_dgram_t *resolver;
     nl_packet_t tosend, *request;
-
-    request = d->data;
-
     log_trace("on_trap_received");
-    resolver = malloc(sizeof(nl_dgram_t));
-    if (resolver == NULL) {
-    }
-    rc = nl_dgram(resolver);
-    if (rc < 0) {
-    }
-    resolver->on_received = on_clean_received;
+
+    resolver = d;
+    request = resolver->data;
+
+    resolver->on_received = on_last_received;
     resolver->on_closed = on_closed;
     resolver->data = request;
 
@@ -221,36 +201,43 @@ void on_trap_received(nl_dgram_t *d, nl_packet_t *p)
 
     resolver->timeout_ev.handler = on_clean_timeout;
     resolver->timeout_ev.data = resolver;
-    nl_event_add_timer(&resolver->timeout_ev, 10000);
-
-    nl_dgram_close(d);
+    nl_event_del_timer(&resolver->timeout_ev);
+    nl_event_add_timer(&resolver->timeout_ev, CDNS_TIMEOUT);
 }
 
 void on_svr_received(nl_dgram_t *d, nl_packet_t *p)
 {
     int rc;
     dmsg_t m;
-    nl_packet_t tosend, *request;
-    char name[256];
-    nl_dgram_t *resolver;
     dmsg_qd qd;
+    char name[256];
+    log_trace("on_svr_received");
+
+    nl_packet_t tosend, *request;
+    nl_dgram_t *resolver;
 
     rc = dmsg_new(&m, p->buf.buf, p->buf.len);
     if (rc < 0) {
-        log_error("dms_create() failed");
+        log_error("dmsg_new() failed");
         return;
     }
 
     //dmsg_debug_print(&m);
+    name[0] = 0;
     qd = dmsg_get_qd(&m, 0);
     if (qd == NULL) {
+        log_warning("dmsg_get_qd() get nothing");
     }
-    dmsg_get_qname(&m, qd, name);
+    else {
+        dmsg_get_qname(&m, qd, name);
+    }
     log_debug("name: %s", name);
     dmsg_delete(&m);
 
     request = malloc(sizeof(nl_packet_t) + p->buf.len);
     if (request == NULL) {
+        log_error("malloc() failed");
+        return;
     }
     request->addr = p->addr;
     request->buf.len = p->buf.len;
@@ -259,16 +246,31 @@ void on_svr_received(nl_dgram_t *d, nl_packet_t *p)
 
     resolver = malloc(sizeof(nl_dgram_t));
     if (resolver == NULL) {
+        log_error("malloc() failed");
+        free(request);
+        return;
     }
     rc = nl_dgram(resolver);
     if (rc < 0) {
+        log_error("nl_dgram() failed");
+        free(request);
+        free(resolver);
+        return;
     }
 
+    int isGname = 0;
     size_t slen = strlen(name);
 #define GNAME "google.com."
-    if (slen >=  strlen(GNAME) && strcmp(name + (slen - strlen(GNAME)), GNAME) == 0) {
+#define GHKNAME "google.com.hk."
+#define GJPNAME "google.co.jp."
+    if ((slen >=  strlen(GNAME) && strcmp(name + (slen - strlen(GNAME)), GNAME) == 0) ||
+        (slen >=  strlen(GHKNAME) && strcmp(name + (slen - strlen(GHKNAME)), GHKNAME) == 0) ||
+        (slen >=  strlen(GJPNAME) && strcmp(name + (slen - strlen(GJPNAME)), GJPNAME) == 0)) {
+        isGname = 1;
+    }
+    if (isGname) {
         log_debug("resolve google name");
-        resolver->on_received = on_clean_received;
+        resolver->on_received = on_last_received;
         resolver->on_closed = on_closed;
         resolver->data = request;
 
@@ -281,10 +283,10 @@ void on_svr_received(nl_dgram_t *d, nl_packet_t *p)
 
         resolver->timeout_ev.handler = on_clean_timeout;
         resolver->timeout_ev.data = resolver;
-        // TODO: optimise by network
-        nl_event_add_timer(&resolver->timeout_ev, 10000);
+        nl_event_add_timer(&resolver->timeout_ev, CDNS_TIMEOUT);
     }
     else {
+        log_debug("resolve non google name");
         resolver->on_received = on_trap_received;
         resolver->on_closed = on_closed;
         resolver->data = request;
@@ -298,8 +300,7 @@ void on_svr_received(nl_dgram_t *d, nl_packet_t *p)
 
         resolver->timeout_ev.handler = on_trap_timeout;
         resolver->timeout_ev.data = resolver;
-        // TODO: optimise by network
-        nl_event_add_timer(&resolver->timeout_ev, 10);
+        nl_event_add_timer(&resolver->timeout_ev, TDNS_TIMEOUT);
     }
 }
 
