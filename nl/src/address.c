@@ -158,6 +158,29 @@ static int inet46_ntop(struct sockaddr *addr, char *dst)
     return -1;
 }
 
+int nl_address_equal(nl_address_t *lhs, nl_address_t *rhs)
+{
+    //if (lhs->af != rhs->af) {
+    //    return -1;
+    //}
+
+    if (lhs->af == AF_INET) {
+        struct sockaddr_in l, r;
+        memset(&l, 0, sizeof(struct sockaddr_in));
+        memset(&r, 0, sizeof(struct sockaddr_in));
+        if (nl_address_getinet4addr(lhs, &l) != 0) {
+            return -1;
+        }
+        if (nl_address_getinet4addr(rhs, &r) != 0) {
+            return -1;
+        }
+        return memcmp(&l, &r, sizeof(struct sockaddr_in));
+    }
+
+    // TODO:
+    return -1;
+}
+
 const char *nl_address_tostring(nl_address_t *addr)
 {
     // TODO:
