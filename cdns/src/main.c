@@ -259,6 +259,8 @@ void on_svr_received(nl_dgram_t *d, nl_packet_t *p)
     }
 
     int isGname = 0;
+    int isRDNS = 0;
+    int isDomestic = 0;
     size_t slen = strlen(name);
 #define GNAME "google.com."
 #define GHKNAME "google.com.hk."
@@ -268,8 +270,28 @@ void on_svr_received(nl_dgram_t *d, nl_packet_t *p)
         (slen >=  strlen(GJPNAME) && strcmp(name + (slen - strlen(GJPNAME)), GJPNAME) == 0)) {
         isGname = 1;
     }
-    if (isGname) {
-        log_debug("resolve google name");
+#define RDNS "in-addr.arpa."
+    else if (slen >=  strlen(RDNS) && strcmp(name + (slen - strlen(RDNS)), RDNS) == 0) {
+        isRDNS = 1;
+        int i = 0, pos;
+        uint32_t val, ipv4 = 0;
+
+        for (pos = 3; pos >= 0; pos--) {
+            val = 0;
+            while (i < slen && name[i] != '.') {
+                val *= 10;
+                val += name[i] - '0';
+                i++;
+            }
+            ipv4 += (val << (pos * 8));
+            i++;
+        }
+
+        isDomestic = test_addr(ntohl(ipv4)) == 0 ? 1 : 0;
+    }
+
+    if (isGname || (isRDNS && !isDomestic)) {
+        log_debug("resolve google name or abroad rdns");
         resolver->on_received = on_last_received;
         resolver->on_closed = on_closed;
         resolver->data = request;
@@ -284,6 +306,23 @@ void on_svr_received(nl_dgram_t *d, nl_packet_t *p)
         resolver->timeout_ev.handler = on_clean_timeout;
         resolver->timeout_ev.data = resolver;
         nl_event_add_timer(&resolver->timeout_ev, CDNS_TIMEOUT);
+    }
+    else if (isRDNS) {
+        log_debug("domestic rdns");
+        resolver->on_received = on_last_received;
+        resolver->on_closed = on_closed;
+        resolver->data = request;
+
+        nl_dgram_resume_receiving(resolver);
+
+        tosend.buf = p->buf;
+        nl_address_setname(&tosend.addr, ddns);
+        nl_address_setport(&tosend.addr, ddns_port);
+        nl_dgram_send(resolver, &tosend);
+
+        resolver->timeout_ev.handler = on_clean_timeout;
+        resolver->timeout_ev.data = resolver;
+        nl_event_add_timer(&resolver->timeout_ev, DDNS_TIMEOUT);
     }
     else {
         log_debug("resolve non google name");
