@@ -101,9 +101,11 @@ def acceptSideReceiveTo(self, data):
         srcSid = hash(srcAddr + ':' + srcPort) % MAX_CONNECTION
         dst2stream[srcSid] = tunnel
 
-        def tunDeviceReceived(self, data, src, dst):
+        def tunDeviceReceived(self, data, proto, src, dst):
             dstAddr, dstPort = dst
             dstSid  = hash(dstAddr + ':' + str(dstPort)) % MAX_CONNECTION
+            if proto == 'tcp':
+                data = data * 2
             if dst2stream[dstSid] is not None:
                 tunnel = dst2stream[dstSid]
                 tunnel.send(data)
@@ -291,7 +293,7 @@ def genConnectSideMultiplex(via, to):
                            6 + len(toAddr), 3, toAddr, toPort,
                            4 + len(srcAddr), srcAddr, srcPort)
 
-    def connectSideMultiplex(front, data, src, dst):
+    def connectSideMultiplex(front, data, proto, src, dst):
         srcAddr, srcPort = src 
         addrPort = srcAddr + ':' + str(srcPort)
 
@@ -332,7 +334,10 @@ def genConnectSideMultiplex(via, to):
             tunnel.setOnReceived(tunnelReceived)
             tunnel.setOnClosed(tunnelClosed)
 
-        tunnel.send(data)
+        if proto == 'tcp':
+            tunnel.send(data * 2)
+        else:
+            tunnel.send(data)
 
     return connectSideMultiplex
 

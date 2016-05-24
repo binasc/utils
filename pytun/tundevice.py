@@ -126,14 +126,16 @@ class TunDevice(object):
         sip = socket.inet_ntop(socket.AF_INET, sip)
         dip = socket.inet_ntop(socket.AF_INET, dip)
 
+        proto = 'other'
         sport, dport = 0, 0
         if protocol == PROTO_TCP or protocol == PROTO_UDP:
+            proto = 'tcp' if protocol == PROTO_TCP else 'udp'
             offset = ihl * 4
             sport, dport = struct.unpack('!HH', packet[offset:offset+4])
             #print('source port: %d' % sport)
             #print('dest port: %d' % dport)
 
-        return total_length, (sip, sport), (dip, dport)
+        return total_length, proto, (sip, sport), (dip, dport)
 
     def __decode(self, depth, data):
         decoder, remain = self.__decoders[depth]
@@ -144,8 +146,8 @@ class TunDevice(object):
             if processed_bytes > 0:
                 if depth == len(self.__decoders) - 1:
                     try:
-                        _, src, dst = self.__parseIpv4(processed)
-                        self.__onReceived(self, processed, src, dst)
+                        _, proto, src, dst = self.__parseIpv4(processed)
+                        self.__onReceived(self, processed, proto, src, dst)
                     except Exception as e:
                         _logger.error('onReceived: %s', e)
                         raise e
