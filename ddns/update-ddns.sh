@@ -10,5 +10,5 @@ fi
 old_ip=`sed -n "s/^address=\/$domain\/\(.*\)$/\1/p" $file`
 if [ "$old_ip" != "$ip" ]; then
     sed -i "s/\(\/$domain\/\).*$/\1$ip/" $file
-    /sbin/service dnsmasq restart
+    service dnsmasq restart
 fi
