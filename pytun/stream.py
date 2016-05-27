@@ -58,6 +58,10 @@ class Stream:
         self.__fd.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, bsize)
         self.__fd.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, bsize)
 
+    def setCongAlgorithm(self, algo):
+        TCP_CONGESTION = getattr(socket, 'TCP_CONGESTION', 13)
+        self.__fd.setsockopt(socket.IPPROTO_TCP, TCP_CONGESTION, algo)
+
     def setOnConnected(self, onConnected):
         self.__onConnected = onConnected
 

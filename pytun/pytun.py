@@ -66,6 +66,7 @@ def acceptSideReceiveTo(self, data):
 
         tunnel.setOnReceived(tunnelReceived)
         tunnel.setOnClosed(tunnelClosed)
+        back.setCongAlgorithm('hybla')
         back.setOnReceived(backendReceived)
         back.setOnClosed(backendClosed)
 
@@ -104,8 +105,8 @@ def acceptSideReceiveTo(self, data):
         def tunDeviceReceived(self, data, proto, src, dst):
             dstAddr, dstPort = dst
             dstSid  = hash(dstAddr + ':' + str(dstPort)) % MAX_CONNECTION
-            if proto == 'tcp':
-                data = data * 2
+            #if proto == 'tcp':
+            #    data = data * 2
             if dst2stream[dstSid] is not None:
                 tunnel = dst2stream[dstSid]
                 tunnel.send(data)
@@ -171,6 +172,7 @@ def acceptSideAcceptor(tunnel):
         return getToHandler
 
     tunnel.setBufferSize(BUFFSIZE)
+    tunnel.setCongAlgorithm('hybla')
     tunnel.appendSendHandler(obscure.packData)
     tunnel.appendSendHandler(obscure.genXorEncode())
     tunnel.appendSendHandler(obscure.base64encode)
@@ -217,6 +219,7 @@ def _initStream(addr, port):
     tunnel.appendReceiveHandler(obscure.genXorDecode())
     tunnel.appendReceiveHandler(obscure.unpackData)
     tunnel.setBufferSize(BUFFSIZE)
+    tunnel.setCongAlgorithm('hybla')
     return tunnel
 
 def genConnectSideAcceptor(via, to):
@@ -243,6 +246,7 @@ def genConnectSideAcceptor(via, to):
 
         tunnel.setOnReceived(tunnelReceived)
         tunnel.setOnClosed(tunnelClosed)
+        front.setCongAlgorithm('hybla')
         front.setOnReceived(frontendReceived)
         front.setOnClosed(frontendClosed)
         front.beginReceiving()
@@ -334,10 +338,9 @@ def genConnectSideMultiplex(via, to):
             tunnel.setOnReceived(tunnelReceived)
             tunnel.setOnClosed(tunnelClosed)
 
-        if proto == 'tcp':
-            tunnel.send(data * 2)
-        else:
-            tunnel.send(data)
+        #if proto == 'tcp':
+        #    data = data * 2
+        tunnel.send(data)
 
     return connectSideMultiplex
 
