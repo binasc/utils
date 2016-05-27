@@ -18,7 +18,7 @@
 // TODO: optimise by network
 #define TDNS_TIMEOUT 50
 #define DDNS_TIMEOUT 100
-#define CDNS_TIMEOUT 1000
+#define CDNS_TIMEOUT 5000
 
 static nl_dgram_t s_svr;
 static nl_address_t s_addr;
@@ -320,7 +320,7 @@ void on_svr_received(nl_dgram_t *d, nl_packet_t *p)
         nl_address_setport(&tosend.addr, ddns_port);
         nl_dgram_send(resolver, &tosend);
 
-        resolver->timeout_ev.handler = on_clean_timeout;
+        resolver->timeout_ev.handler = on_last_timeout;
         resolver->timeout_ev.data = resolver;
         nl_event_add_timer(&resolver->timeout_ev, DDNS_TIMEOUT);
     }
