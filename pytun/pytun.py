@@ -2,6 +2,7 @@
 import sys
 import epoll
 import event
+import threading
 from acceptor import Acceptor
 from stream import Stream
 from dgram import Dgram
@@ -393,8 +394,11 @@ Accept Side: -A addr0:port0,addr1:port1,...
                 acceptor = TunDevice('tun', addr, '255.255.255.0')
                 acceptor.setOnReceived(genConnectSideMultiplex(via, to))
                 acceptor.beginReceiving()
-                
-                subprocess.Popen(['ping', '-c', '1', to[0]])
+                def pingThread():
+                    subprocess.Popen(['ping', '-c', '1', to[0]]).wait()
+
+                t = threading.Thread(target=pingThread)
+                t.start()
 
     event.Event.processLoop()
 
