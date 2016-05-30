@@ -5,6 +5,7 @@ from event import Event
 from collections import deque
 import logging
 import loglevel
+import traceback
 
 _logger = logging.getLogger('Stream')
 _logger.setLevel(loglevel.gLevel)
@@ -151,6 +152,9 @@ class Stream:
         self.__tosend.append(data)
         self.refreshTimer()
 
+    class RecvCBException(Exception):
+        pass
+
     def __decode(self, depth, data):
         decoder, remain = self.__decoders[depth]
         remain[0] += data
@@ -163,7 +167,9 @@ class Stream:
                         self.__onReceived(self, processed)
                     except Exception as e:
                         _logger.error('onReceived: %s', e)
-                        raise e
+                        exstr = traceback.format_exc()
+                        _logger.error('%s', exstr)
+                        raise self.RecvCBException(e)
                 else:
                     self.__decode(depth + 1, processed) < 0
                 remain[0] = remain[0][processed_bytes:]
@@ -189,8 +195,12 @@ class Stream:
 
             try:
                 self.__decode(0, recv)
+            except self.RecvCBException:
+                pass
             except Exception as e:
                 _logger.error('decode: %s', e)
+                exstr = traceback.format_exc()
+                _logger.error('%s', exstr)
                 self.__error = True
                 self.__closeAgain()
 
