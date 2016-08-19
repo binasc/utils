@@ -76,7 +76,6 @@ class Epoll:
             self.__fd.modify(fd, mask)
             self.__fd_mask[fd] = mask
         else:
-            #assert self.__fd_mask[fd] == 0
             assert mask == 0
             self.__fd.unregister(fd)
             del self.__fd_mask[fd]
@@ -85,18 +84,17 @@ class Epoll:
         self.__ready = []
         ready_list = self.__fd.poll(timeout)
         for fd, ev_type in ready_list:
+            handled = False
             if ev_type & select.EPOLLOUT:
                 if fd in self.__registered_write:
                     self.__ready.append(self.__registered_write[fd])
-                else:
-                    None.foo()
-            elif ev_type & select.EPOLLIN:
+                    handled = True
+            if ev_type & select.EPOLLIN:
                 if fd in self.__registered_read:
                     self.__ready.append(self.__registered_read[fd])
-                else:
-                    None.foo()
-            else:
-                None.foo()
+                    handled = True
+            if not handled:
+                raise Exception("fd: %d, type: %s" % (fd, str(ev_type)))
 
         for event in self.__ready:
             event.getHandler()(event)

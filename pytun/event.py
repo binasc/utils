@@ -72,7 +72,6 @@ class Event:
                 event.__handler(event)
 
     addEvent = None
-    # TODO: Timer?
     delEvent = None
     processEvents = None
 

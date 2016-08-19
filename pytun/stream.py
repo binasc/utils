@@ -87,9 +87,11 @@ class Stream:
             
         if self.__onConnected != None:
             try:
-                self.__onConnected()
+                self.__onConnected(self)
             except Exception as e:
-                _logger.error('__checkConnected: %s', e)
+                _logger.error('__onConnected: %s', e)
+                exstr = traceback.format_exc()
+                _logger.error('%s', exstr)
                 self.__error = True
                 self.__closeAgain()
                 return
@@ -206,7 +208,7 @@ class Stream:
 
     def beginReceiving(self):
         _logger.debug('beginReceiving')
-        if self.__cev != None:
+        if self.__cev != None and not self.__connected:
             return
         Event.addEvent(self.__rev)
 
@@ -231,11 +233,14 @@ class Stream:
             self.__timeoutEv = None
 
         self.__fd.close()
+        self.__connected = False
         if self.__onClosed != None:
             try:
                 self.__onClosed(self)
             except Exception as ex:
                 _logger.warning('Exception on closed: %s', str(ex))
+                exstr = traceback.format_exc()
+                _logger.error('%s', exstr)
 
     def __closeAgain(self):
         _logger.debug('__closeAgain')
