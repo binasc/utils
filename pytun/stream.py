@@ -262,6 +262,9 @@ class Stream:
         if timeout == 0:
             Event.delEvent(self.__wev)
 
+        # remove timeout event
+        self.setTimeout(0)
+
         Event.delEvent(self.__rev)
         self.__cev = Event.addTimer(timeout)
         self.__cev.setHandler(lambda ev: self.__onClose())
@@ -280,6 +283,9 @@ class Stream:
             self.__timeoutEv.setHandler(lambda ev: self.__onTimeout())
 
     def setTimeout(self, timeout):
+        if self.__cev != None:
+            return
+
         if self.__timeoutEv is not None:
             self.__timeoutEv.delTimer()
             self.__timeoutEv = None

@@ -5,6 +5,7 @@ from event import Event
 from stream import Stream
 import logging
 import loglevel
+import traceback
 
 _logger = logging.getLogger('Acceptor')
 _logger.setLevel(loglevel.gLevel)
@@ -55,6 +56,7 @@ class Acceptor:
                     self.__onAccepted(newstream)
                 except Exception as e:
                     _logger.error('onAccepted: %s', e)
+                    _logger.exception(traceback.format_exc())
                     newstream.close()
 
     def setOnAccepted(self, onAccepted):
