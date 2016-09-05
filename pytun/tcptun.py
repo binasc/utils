@@ -17,19 +17,19 @@ def genOnAccepted(via, to):
 
     def onAccepted(front):
         _logger.debug('onAccepted')
-        addr, port = via
+
         tunnel = Stream()
-        tunnel.connect(addr, port)
         common.initializeTunnel(tunnel)
+        tunnel.connect(via[0], via[1])
         tunnel.send(header)
 
-        def tunnelReceived(self, data):
+        def tunnelReceived(self, data, _):
             front.send(data)
 
         def tunnelClosed(self):
             front.close()
 
-        def frontendReceived(self, data):
+        def frontendReceived(self, data, _):
             tunnel.send(data)
 
         def frontendClosed(self):
@@ -55,13 +55,13 @@ def acceptSideReceiver(tunnel, header):
     back = Stream()
     back.connect(addr, port)
 
-    def tunnelReceived(self, data):
+    def tunnelReceived(self, data, _):
         back.send(data)
 
     def tunnelClosed(self):
         back.close()
 
-    def backendReceived(self, data):
+    def backendReceived(self, data, _):
         tunnel.send(data)
 
     def backendClosed(self):
@@ -75,3 +75,4 @@ def acceptSideReceiver(tunnel, header):
         _logger.warning('setCongAlgorithm failed: %s' % str(ex))
     back.setOnReceived(backendReceived)
     back.setOnClosed(backendClosed)
+

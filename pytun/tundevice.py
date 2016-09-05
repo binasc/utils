@@ -7,9 +7,9 @@ import struct
 from event import Event
 from collections import deque
 import logging
-import loglevel
 import traceback
 
+import loglevel
 _logger = logging.getLogger('TunDevice')
 _logger.setLevel(loglevel.gLevel)
 
@@ -23,84 +23,95 @@ class TunDevice(object):
     def __init__(self, prefix, ip, netmask):
         TUNMODE = self.IFF_TUN | self.IFF_NO_PI
 
-        self.__fd = os.open('/dev/net/tun', os.O_RDWR)
+        self._fd = os.open('/dev/net/tun', os.O_RDWR)
 
-        flag = fcntl.fcntl(self.__fd, fcntl.F_GETFL)
-        fcntl.fcntl(self.__fd, fcntl.F_SETFL, flag | os.O_NONBLOCK)
+        flag = fcntl.fcntl(self._fd, fcntl.F_GETFL)
+        fcntl.fcntl(self._fd, fcntl.F_SETFL, flag | os.O_NONBLOCK)
 
         ctlstr = struct.pack('16sH', prefix + '%d', TUNMODE)
-        ifs = fcntl.ioctl(self.__fd, self.TUNSETIFF, ctlstr)
-        self.__ifname = ifs[:16].strip("\x00")
+        ifs = fcntl.ioctl(self._fd, self.TUNSETIFF, ctlstr)
+        self._ifname = ifs[:16].strip("\x00")
 
-        cmd = 'ifconfig %s %s netmask %s mtu 9000 up' % (self.__ifname, ip, netmask)
+        cmd = 'ifconfig %s %s netmask %s mtu 9000 up' % (self._ifname, ip, netmask)
         _logger.debug('ifconfig cmd: ' + cmd)
         subprocess.check_call(cmd, shell=True)
 
-        self.__tosend = deque()
-        self.__rev = None
-        self.__wev = None
-        self.__cev = None
-        self.__timeout = 0
-        self.__timeoutEv = None
+        self._tosend = deque()
+        self._cev = None
+        self._timeout = 0
+        self._timeoutEv = None
 
-        self.__decoders = [(self.__ipv4Decoder, [''])]
+        self._decoders = [(self._ipv4Decoder, [''])]
 
-        self.__error = False
+        self._error = False
 
-        self.__onReceived = None
-        self.__onClosed = None
+        self._onReceived = None
+        self._onClosed = None
 
-        self.__wev = Event()
-        self.__wev.setWrite(True)
-        self.__wev.setFd(self.__fd)
-        self.__wev.setHandler(lambda ev: self.__onSend())
+        self._wev = Event()
+        self._wev.setWrite(True)
+        self._wev.setFd(self._fd)
+        self._wev.setHandler(lambda ev: self._onSend())
 
-        self.__rev = Event()
-        self.__rev.setWrite(False)
-        self.__rev.setFd(self.__fd)
-        self.__rev.setHandler(lambda ev: self.__onReceive())
+        self._rev = Event()
+        self._rev.setWrite(False)
+        self._rev.setFd(self._fd)
+        self._rev.setHandler(lambda ev: self._onReceive())
 
     def setOnReceived(self, onReceived):
-        self.__onReceived = onReceived
+        self._onReceived = onReceived
 
     def setOnClosed(self, onClosed):
-        self.__onClosed = onClosed
+        self._onClosed = onClosed
 
-    def __onSend(self):
-        _logger.debug('__onSend')
-        while len(self.__tosend) > 0:
-            data = self.__tosend.popleft()
+    def beginReceiving(self):
+        _logger.debug('beginReceiving')
+        if self._cev != None:
+            _logger.warning('fd: %d closed', self._fd.fileno())
+            return
+        Event.addEvent(self._rev)
+
+    def stopReceiving(self):
+        _logger.debug('stopReceiving')
+        Event.delEvent(self._rev)
+
+    def _onSend(self):
+        _logger.debug('_onSend')
+        while len(self._tosend) > 0:
+            data = self._tosend.popleft()
             try:
-                sent = os.write(self.__fd, data)
-                _logger.debug('fd: %d sent %d bytes', self.__fd, sent)
+                sent = os.write(self._fd, data)
+                _logger.debug('fd: %d sent %d bytes', self._fd, sent)
                 if sent < len(data):
-                    _logger.debug('fd: %d sent less than %d bytes', self.__fd, len(data))
-                    self.__tosend.appendleft(data[sent:])
+                    _logger.debug('fd: %d sent less than %d bytes',
+                                  self._fd, len(data))
+                    self._tosend.appendleft(data[sent:])
             except IOError as msg:
                 if msg.errno != errno.EAGAIN and msg.errno != errno.EINPROGRESS:
-                    _logger.error('fd: %d, send: %s', self.__fd, os.strerror(msg.errno))
-                    self.__error = True
-                    self.__closeAgain()
+                    _logger.error('fd: %d, send: %s',
+                                  self._fd, os.strerror(msg.errno))
+                    self._error = True
+                    self._closeAgain()
                 else:
-                    self.__tosend.appendleft(data)
+                    self._tosend.appendleft(data)
                 return
 
-        Event.delEvent(self.__wev)
-        if self.__cev != None:
-            self.__closeAgain()
+        Event.delEvent(self._wev)
+        if self._cev != None:
+            self._closeAgain()
 
     def send(self, data):
         _logger.debug('sending %d bytes', len(data))
-        if self.__cev != None:
+        if self._cev != None:
             return
 
-        if len(self.__tosend) == 0:
-            Event.addEvent(self.__wev)
+        if len(self._tosend) == 0:
+            Event.addEvent(self._wev)
 
-        self.__tosend.append(data)
+        self._tosend.append(data)
 
     @staticmethod
-    def __ipv4Decoder(data):
+    def _ipv4Decoder(data):
         if len(data) < 20:
             return ('', 0)
 
@@ -111,7 +122,7 @@ class TunDevice(object):
         return (data[:length], length)
 
     @staticmethod
-    def __parseIpv4(packet):
+    def _parseIpv4(packet):
     
         PROTO_TCP = 6
         PROTO_UDP = 17
@@ -141,103 +152,94 @@ class TunDevice(object):
     class RecvCBException(Exception):
         pass
 
-    def __decode(self, depth, data):
-        decoder, remain = self.__decoders[depth]
+    def _decode(self, depth, data):
+        decoder, remain = self._decoders[depth]
         remain[0] += data
 
         while len(remain[0]) > 0:
-            processed, processed_bytes = decoder(remain[0])
-            if processed_bytes > 0:
-                if depth == len(self.__decoders) - 1:
-                    try:
-                        _, proto, src, dst = self.__parseIpv4(processed)
-                        self.__onReceived(self, processed, proto, src, dst)
-                    except Exception as e:
-                        _logger.error('onReceived: %s', e)
-                        exstr = traceback.format_exc()
-                        _logger.error('%s', exstr)
-                        raise self.RecvCBException(e)
-                else:
-                    self.__decode(depth + 1, processed) < 0
-                remain[0] = remain[0][processed_bytes:]
-            elif processed_bytes == 0:
-                return 0
+            out, processed_bytes = decoder(remain[0])
+            assert(processed_bytes >= 0)
+            if processed_bytes == 0:
+                break
+            if depth == len(self._decoders) - 1:
+                try:
+                    _, proto, src, dst = self._parseIpv4(out)
+                    self._onReceived(self, out, proto, src, dst)
+                except Exception as e:
+                    _logger.error('_onReceived: %s', e)
+                    _logger.exception(traceback.format_exc())
+                    self._error = True
+                    self._closeAgain()
+                    raise self.RecvCBException(e)
+            else:
+                self._decode(depth + 1, out)
+            remain[0] = remain[0][processed_bytes:]
 
-    def __onReceive(self):
-        _logger.debug('__onReceive')
+    def _onReceive(self):
+        _logger.debug('_onReceive')
         while True:
             try:
-                recv = os.read(self.__fd, 65536)
+                recv = os.read(self._fd, 65536)
                 if len(recv) == 0:
                     self.close()
                     return
-                _logger.debug('fd: %d recv %d bytes', self.__fd, len(recv))
+                _logger.debug('fd: %d recv %d bytes', self._fd, len(recv))
             except OSError as msg:
                 if msg.errno != errno.EAGAIN and msg.errno != errno.EINPROGRESS:
-                    _logger.error('fd: %d, recv: %s', self.__fd, os.strerror(msg.errno))
-                    self.__error = True
-                    self.__closeAgain()
+                    _logger.error('fd: %d, recv: %s',
+                                  self._fd, os.strerror(msg.errno))
+                    self._error = True
+                    self._closeAgain()
                 return
 
             try:
-                self.__decode(0, recv)
+                self._decode(0, recv)
             except self.RecvCBException:
                 pass
             except Exception as e:
                 _logger.error('decode: %s', e)
-                exstr = traceback.format_exc()
-                _logger.error('%s', exstr)
-                self.__error = True
-                self.__closeAgain()
+                self._error = True
+                self._closeAgain()
 
-    def beginReceiving(self):
-        _logger.debug('beginReceiving')
-        if self.__cev != None:
-            return
-        Event.addEvent(self.__rev)
-
-    def stopReceiving(self):
-        _logger.debug('stopReceiving')
-        Event.delEvent(self.__rev)
-
-    def __onClose(self):
-        _logger.debug('__onClose')
-        _logger.debug('fd: %d closed', self.__fd)
+    def _onClose(self):
+        _logger.debug('_onClose')
+        _logger.debug('fd: %d closed', self._fd)
         # in case of timeout happened
-        Event.delEvent(self.__wev)
+        Event.delEvent(self._wev)
 
-        if self.__timeoutEv is not None:
-            self.__timeoutEv.delTimer()
-            self.__timeoutEv = None
+        if self._timeoutEv is not None:
+            self._timeoutEv.delTimer()
+            self._timeoutEv = None
 
-        os.close(self.__fd)
-        if self.__onClosed != None:
+        os.close(self._fd)
+        if self._onClosed != None:
             try:
-                self.__onClosed(self)
+                self._onClosed(self)
             except:
-                pass
+                _logger.error('_onClosed: %s', ex)
+                _logger.exception(traceback.format_exc())
 
-    def __closeAgain(self):
-        _logger.debug('__closeAgain')
-        if self.__cev != None:
-            self.__cev.delTimer()
-            self.__cev = None
+    def _closeAgain(self):
+        _logger.debug('_closeAgain')
+        if self._cev != None:
+            self._cev.delTimer()
+            self._cev = None
         self.close()
 
     def close(self):
         _logger.debug('close')
-        if self.__cev != None:
+        if self._cev != None:
             return
-        _logger.debug('fd: %d closing', self.__fd)
+        _logger.debug('fd: %d closing', self._fd)
 
         timeout = 0
-        if not self.__error and len(self.__tosend) > 0:
+        if not self._error and len(self._tosend) > 0:
             timeout = 60000
 
         if timeout == 0:
-            Event.delEvent(self.__wev)
+            Event.delEvent(self._wev)
 
-        Event.delEvent(self.__rev)
-        self.__cev = Event.addTimer(timeout)
-        self.__cev.setHandler(lambda ev: self.__onClose())
+        Event.delEvent(self._rev)
+        self._cev = Event.addTimer(timeout)
+        self._cev.setHandler(lambda ev: self._onClose())
 

@@ -49,7 +49,7 @@ def genOnReceived(via, to):
             else:
                 tunnel.setTimeout(10 * 60 * 1000)
 
-            def tunnelReceived(self, data):
+            def tunnelReceived(self, data, _):
                 front.send(data)
 
             def reconnectHandler(ev):
@@ -114,7 +114,7 @@ def acceptSideReceiver(tunnel, header):
         tunDevice.beginReceiving()
         to2tun[addrPort] = tunDevice
 
-    def tunDeviceTunnelReceived(self, data):
+    def tunDeviceTunnelReceived(self, data, _):
         # TODO: do check here?
         tunDevice.send(data)
 

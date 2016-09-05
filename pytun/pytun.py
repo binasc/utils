@@ -51,7 +51,7 @@ def processConnectSideArgument(arg):
         serverlist.append((addr, port, type_, (via, to)))
     return serverlist
 
-def acceptSideOnReceived(tunnel, header):
+def acceptSideOnReceived(tunnel, header, _):
     try:
         header = json.loads(header)
     except Exception as ex:
@@ -121,13 +121,16 @@ if __name__ == '__main__':
             print(_helpText)
             sys.exit(0)
 
+    if not AcceptMode and not ConnectMode:
+        print(_helpText)
+        sys.exit(0)
+
     epoll.Epoll.init()
 
     for addr, port, type_, arg in ServerList:
         if AcceptMode:
             acceptor = Acceptor()
             acceptor.bind(addr, port)
-            _logger.debug('listening at: %s:%d', addr, port)
             acceptor.listen()
             acceptor.setOnAccepted(acceptSideOnAccepted)
             acceptor.setOnClosed(acceptorOnClosed)
@@ -142,7 +145,7 @@ if __name__ == '__main__':
             elif type_ == 'udp':
                 acceptor = Dgram()
                 acceptor.bind(addr, port)
-                acceptor.setOnReceivedFrom(udptun.genOnReceivedFrom(via, to))
+                acceptor.setOnReceived(udptun.genOnReceived(via, to))
                 acceptor.beginReceiving()
             elif type_ == 'tun':
                 # XXX: use port as prefix

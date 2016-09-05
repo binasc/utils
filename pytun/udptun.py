@@ -10,7 +10,7 @@ _logger.setLevel(loglevel.gLevel)
 
 addr2Stream = {}
 
-def genOnReceivedFrom(via, to):
+def genOnReceived(via, to):
 
     header = common.wrapContent(json.dumps({
         'type': 'udp',
@@ -18,24 +18,23 @@ def genOnReceivedFrom(via, to):
         'port': to[1]
     }))
 
-    def connectSideReceiver(front, data, fr0m):
-        addr, port = fr0m
-        addrPort = addr + ':' + str(port)
+    def onReceived(front, data, from_):
+        addrPort = '%s:%d' % from_
 
         if addrPort in addr2Stream:
             tunnel = addr2Stream[addrPort]
         else:
-            addr, port = via
+            _logger.debug('new Dgram from: %s:%d' % from_)
+
             tunnel = Stream()
-            tunnel.connect(addr, port)
             common.initializeTunnel(tunnel)
+            tunnel.connect(via[0], via[1])
             tunnel.send(header)
 
-            _logger.debug('new Dgram from: %s:%d', addr, port)
             addr2Stream[addrPort] = tunnel
 
-            def tunnelReceived(self, data):
-                front.sendto(data, fr0m)
+            def tunnelReceived(self, data, _):
+                front.send(data, from_)
 
             def tunnelClosed(self):
                 del addr2Stream[addrPort]
@@ -45,7 +44,7 @@ def genOnReceivedFrom(via, to):
 
         tunnel.send(data)
 
-    return connectSideReceiver
+    return onReceived
 
 def acceptSideReceiver(tunnel, header):
     addr = header['addr']
@@ -53,13 +52,13 @@ def acceptSideReceiver(tunnel, header):
 
     back = Dgram()
 
-    def udpTunnelReceived(self, data):
-        back.sendto(data, (addr, port))
+    def udpTunnelReceived(self, data, _):
+        back.send(data, (addr, port))
 
     def udpTunnelClosed(self):
         back.close()
 
-    def udpBackendReceivedFrom(self, data, addr):
+    def udpBackendReceived(self, data, _):
         tunnel.send(data)
 
     def udpBackendClosed(self):
@@ -67,8 +66,9 @@ def acceptSideReceiver(tunnel, header):
 
     tunnel.setOnReceived(udpTunnelReceived)
     tunnel.setOnClosed(udpTunnelClosed)
-    back.setOnReceivedFrom(udpBackendReceivedFrom)
+    back.setOnReceived(udpBackendReceived)
     back.setOnClosed(udpBackendClosed)
     back.beginReceiving()
     # 10 min
     back.setTimeout(10 * 60 * 1000)
+
