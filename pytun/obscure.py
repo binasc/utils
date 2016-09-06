@@ -98,6 +98,8 @@ def genHttpDecode():
     def getLine(data):
         pos = data.find('\r\n')
         if pos == -1:
+            if len(data) > 256:
+                raise Exception('http header too long')
             return (None, data)
         return (data[0:pos], data[pos+2:])
 
@@ -123,6 +125,8 @@ def genHttpDecode():
             if line == None:
                 return (None, 0)
             httplength += len(line) + len('\r\n')
+            if httplength > 8192:
+                raise Exception('http headers too large')
             if firstline:
                 firstline = False
                 continue
@@ -135,13 +139,4 @@ def genHttpDecode():
                 data, payloadlength = consumeData(data)
                 return (data, httplength + payloadlength)
     return httpDecode
-
-
-
-
-
-
-
-
-
 
