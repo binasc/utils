@@ -31,6 +31,7 @@ class Epoll:
         # only one instance is allowed
         Event.addEvent = staticmethod(lambda ev: Epoll.__epoll.register(ev))
         Event.delEvent = staticmethod(lambda ev: Epoll.__epoll.unregister(ev))
+        Event.isEventSet = staticmethod(lambda ev: Epoll.__epoll.isset(ev))
         Event.processEvents = staticmethod(lambda t: Epoll.__epoll.process_events(t))
 
     def register(self, event):
@@ -80,6 +81,9 @@ class Epoll:
             self.__fd.unregister(fd)
             del self.__fd_mask[fd]
 
+    def isset(self, event):
+        return event.getFd() in self.__fd_mask
+
     def process_events(self, timeout):
         self.__ready = []
         ready_list = self.__fd.poll(timeout)
@@ -94,6 +98,7 @@ class Epoll:
                     self.__ready.append(self.__registered_read[fd])
                     handled = True
             if not handled:
+                print('mask: %d' % self.__fd_mask[fd])
                 raise Exception("fd: %d, type: %s" % (fd, str(ev_type)))
 
         for event in self.__ready:

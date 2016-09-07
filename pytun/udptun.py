@@ -8,6 +8,8 @@ import loglevel
 _logger = logging.getLogger('Udptun')
 _logger.setLevel(loglevel.gLevel)
 
+BUFFERSIZE = 512 * 1024
+
 addr2Stream = {}
 
 def genOnReceived(via, to):
@@ -52,6 +54,12 @@ def acceptSideReceiver(tunnel, header):
 
     back = Dgram()
 
+    def udpTunnelSent(self, sent, remain):
+        if remain > BUFFERSIZE:
+            back.stopReceiving()
+        else:
+            back.beginReceiving()
+
     def udpTunnelReceived(self, data, _):
         back.send(data, (addr, port))
 
@@ -59,11 +67,14 @@ def acceptSideReceiver(tunnel, header):
         back.close()
 
     def udpBackendReceived(self, data, _):
-        tunnel.send(data)
+        pending = tunnel.send(data)
+        if pending > BUFFERSIZE:
+            self.stopReceiving()
 
     def udpBackendClosed(self):
         tunnel.close()
 
+    tunnel.setOnSent(udpTunnelSent)
     tunnel.setOnReceived(udpTunnelReceived)
     tunnel.setOnClosed(udpTunnelClosed)
     back.setOnReceived(udpBackendReceived)

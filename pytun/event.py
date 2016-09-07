@@ -73,6 +73,7 @@ class Event:
 
     addEvent = None
     delEvent = None
+    isEventSet = None
     processEvents = None
 
     @staticmethod

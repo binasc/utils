@@ -16,6 +16,7 @@ class NonBlocking(object):
         self._fd = sock
         self._fd.setblocking(False)
 
+        self._tosend_bytes = 0
         self._tosend = deque()
         self._cev = None
         self._timeout = 0
@@ -28,6 +29,7 @@ class NonBlocking(object):
 
         self._connected = False
 
+        self._onSent = None
         self._onReceived = None
         self._onClosed = None
 
@@ -54,6 +56,9 @@ class NonBlocking(object):
         self._fd.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, bsize)
         self._fd.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, bsize)
 
+    def setOnSent(self, onSent):
+        self._onSent = onSent
+
     def setOnReceived(self, onReceived):
         self._onReceived = onReceived
 
@@ -79,6 +84,7 @@ class NonBlocking(object):
 
     def _onSend(self):
         _logger.debug('_onSend')
+        sent_bytes = 0
         while len(self._tosend) > 0:
             data, addr = self._tosend.popleft()
             try:
@@ -86,6 +92,7 @@ class NonBlocking(object):
                     sent = self._fd.send(data)
                 else:
                     sent = self._fd.sendto(data, addr)
+                sent_bytes += sent
                 if addr is None:
                     _logger.debug('fd: %d sent %d bytes', self._fd.fileno(), sent)
                 else:
@@ -103,9 +110,20 @@ class NonBlocking(object):
                     self._closeAgain()
                 else:
                     self._tosend.appendleft((data, addr))
-                return
+                break
 
-        Event.delEvent(self._wev)
+        self._tosend_bytes -= sent_bytes
+        if sent_bytes > 0 and self._onSent:
+            try:
+                self._onSent(self, sent_bytes, self._tosend_bytes)
+            except Exception as e:
+                _logger.error('_onSent: %s', e)
+                _logger.exception(traceback.format_exc())
+                self._error = True
+                self._closeAgain()
+
+        if len(self._tosend) == 0:
+            Event.delEvent(self._wev)
         if self._cev != None:
             self._closeAgain()
 
@@ -122,7 +140,9 @@ class NonBlocking(object):
         for encoder in self._encoders:
             data = encoder(data)
         self._tosend.append((data, addr))
+        self._tosend_bytes += len(data)
         self.refreshTimer()
+        return self._tosend_bytes
 
     class RecvCBException(Exception):
         pass
@@ -180,6 +200,9 @@ class NonBlocking(object):
                 _logger.error('decode: %s', e)
                 self._error = True
                 self._closeAgain()
+            else:
+                if not Event.isEventSet(self._rev):
+                    break
 
     def _onClose(self):
         _logger.debug('_onClose')

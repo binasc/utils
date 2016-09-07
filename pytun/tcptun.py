@@ -7,6 +7,8 @@ import loglevel
 _logger = logging.getLogger('Tcptun')
 _logger.setLevel(loglevel.gLevel)
 
+BUFFERSIZE = 512 * 1024
+
 def genOnAccepted(via, to):
 
     header = common.wrapContent(json.dumps({
@@ -55,6 +57,12 @@ def acceptSideReceiver(tunnel, header):
     back = Stream()
     back.connect(addr, port)
 
+    def tunnelSent(self, sent, remain):
+        if remain > BUFFERSIZE:
+            back.stopReceiving()
+        else:
+            back.beginReceiving()
+
     def tunnelReceived(self, data, _):
         back.send(data)
 
@@ -62,11 +70,14 @@ def acceptSideReceiver(tunnel, header):
         back.close()
 
     def backendReceived(self, data, _):
-        tunnel.send(data)
+        pending = tunnel.send(data)
+        if pending > BUFFERSIZE:
+            self.stopReceiving()
 
     def backendClosed(self):
         tunnel.close()
 
+    tunnel.setOnSent(tunnelSent)
     tunnel.setOnReceived(tunnelReceived)
     tunnel.setOnClosed(tunnelClosed)
     try:
