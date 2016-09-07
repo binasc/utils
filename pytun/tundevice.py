@@ -101,6 +101,9 @@ class TunDevice(object):
             self._closeAgain()
 
     def send(self, data):
+        if len(data) == 0:
+            return
+
         _logger.debug('sending %d bytes', len(data))
         if self._cev != None:
             return

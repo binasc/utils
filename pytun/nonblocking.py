@@ -128,6 +128,8 @@ class NonBlocking(object):
             self._closeAgain()
 
     def send(self, data, addr=None):
+        if len(data) == 0:
+            return self._tosend_bytes
         if addr is not None:
             _logger.debug('sendto %s:%d %d bytes', addr[0], addr[1], len(data))
         else:

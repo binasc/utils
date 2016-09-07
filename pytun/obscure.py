@@ -1,7 +1,9 @@
 import base64
 import struct
+from Crypto.Cipher import AES, XOR
+from Crypto import Random
 
-key = bytearray('\x71\x56\x03\xa9')
+key = '\x71\x56\x03\xa9\x71\x56\x03\xa9\x71\x56\x03\xa9\x71\x56\x03\xa9'
 
 def packData(data):
     remain = len(data)
@@ -23,22 +25,63 @@ def unpackData(data):
         return ('', 0)
     return (data[2:2+size], 2 + size)
 
-def genXorEncode():
-    current = [0]
-    def xorEncode(data):
-        b = bytearray(data)
-        for i in range(len(b)):
-            b[i] ^= key[current[0]]
-            current[0] += 1
-            current[0] %= len(key)
-        return str(b)
-    return xorEncode
+BS = AES.block_size
+pad = lambda s: s + (BS - len(s) % BS) * chr(BS - len(s) % BS) 
+unpad = lambda s : s[:-ord(s[len(s)-1:])]
 
-def genXorDecode():
-    xor = genXorEncode()
-    def xorDecode(data):
-        return (xor(data), len(data))
-    return xorDecode
+def genAesEncrypt():
+    init = [False]
+    iv = Random.new().read(AES.block_size)
+    cipher = AES.new(key, AES.MODE_CBC, iv)
+
+    def aesEncrypt(raw):
+        if init[0] is False:
+            init[0] = True
+            return iv + cipher.encrypt(pad(raw))
+        else:
+            return cipher.encrypt(pad(raw))
+
+    return aesEncrypt
+
+def genAesDecrypt():
+    cipher = [None]
+
+    def aesDecrypt(raw):
+        if cipher[0] is None:
+            if len(raw) < AES.block_size:
+                return ('', 0)
+            iv = raw[:AES.block_size]
+            cipher[0] = AES.new(key, AES.MODE_CBC, iv)
+            return ('', AES.block_size)
+        return (unpad(cipher[0].decrypt(raw)), len(raw))
+
+    return aesDecrypt
+
+def genXorEncrypt():
+    init = [False]
+    key = Random.new().read(BS)
+    cipher = XOR.new(key)
+
+    def xorEncrypt(raw):
+        if init[0] is False:
+            init[0] = True
+            return key + cipher.encrypt(raw)
+        return cipher.encrypt(raw)
+
+    return xorEncrypt
+
+def genXorDecrypt():
+    cipher = [None]
+
+    def xorDecrypt(raw):
+        if cipher[0] is None:
+            if len(raw) < BS:
+                return ('', 0)
+            cipher[0] = XOR.new(raw[:BS])
+            return ('', BS)
+        return (cipher[0].decrypt(raw), len(raw))
+
+    return xorDecrypt
 
 def base64encode(data):
     return base64.b64encode(data)
