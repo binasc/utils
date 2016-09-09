@@ -76,3 +76,26 @@ class Stream(NonBlocking):
             timer = Event.addTimer(0)
             timer.setHandler(lambda ev: self._wev.getHandler()(self._wev))
 
+    def setNonBlocking(self):
+        self._fd.setblocking(False)
+
+    def bind(self, addr, port):
+        self._fd.bind((addr, port))
+
+    def setBufferSize(self, bsize):
+        self._fd.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, bsize)
+        self._fd.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, bsize)
+
+    def _send(self, data, _):
+        sent = self._fd.send(data)
+        _logger.debug('fd: %d sent %d bytes', self._fd.fileno(), sent)
+        return sent
+
+    def _recv(self, size):
+        recv = self._fd.recv(size)
+        _logger.debug('fd: %d recv %d bytes', self._fd.fileno(), len(recv))
+        return recv, None
+
+    def _close(self):
+        self._fd.close()
+

@@ -12,9 +12,9 @@ _logger.setLevel(loglevel.gLevel)
 
 class NonBlocking(object):
 
-    def __init__(self, sock):
-        self._fd = sock
-        self._fd.setblocking(False)
+    def __init__(self, fd):
+        self._fd = fd
+        self.setNonBlocking()
 
         self._tosend_bytes = 0
         self._tosend = deque()
@@ -43,18 +43,16 @@ class NonBlocking(object):
         self._rev.setFd(self._fd.fileno())
         self._rev.setHandler(lambda ev: self._onReceive())
 
+        self._errorType = socket.error
+
     def __hash__(self):
         return hash(self._fd.fileno())
 
     def __eq__(self, another):
         return self._fd.fileno() == another._fd.fileno()
 
-    def bind(self, addr, port):
-        self._fd.bind((addr, port))
-
-    def setBufferSize(self, bsize):
-        self._fd.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, bsize)
-        self._fd.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, bsize)
+    def setNonBlocking(self):
+        raise Exception('not implemented')
 
     def setOnSent(self, onSent):
         self._onSent = onSent
@@ -74,7 +72,7 @@ class NonBlocking(object):
     def beginReceiving(self):
         _logger.debug('beginReceiving')
         if self._cev != None and not self._connected:
-            _logger.warning('fd: %d closed or not connected', self._fd.fileno())
+            _logger.warning('fd closed or not connected')
             return
         Event.addEvent(self._rev)
 
@@ -82,27 +80,22 @@ class NonBlocking(object):
         _logger.debug('stopReceiving')
         Event.delEvent(self._rev)
 
+    def _send(self, data, addr):
+        raise Exception('not implemented')
+
     def _onSend(self):
         _logger.debug('_onSend')
         sent_bytes = 0
         while len(self._tosend) > 0:
             data, addr = self._tosend.popleft()
             try:
-                if addr is None:
-                    sent = self._fd.send(data)
-                else:
-                    sent = self._fd.sendto(data, addr)
+                sent = self._send(data, addr)
                 sent_bytes += sent
-                if addr is None:
-                    _logger.debug('fd: %d sent %d bytes', self._fd.fileno(), sent)
-                else:
-                    _logger.debug('fd: %d sent %d bytes to %s:%d',
-                                  self._fd.fileno(), sent, addr[0], addr[1])
                 if sent < len(data):
                     _logger.debug('fd: %d sent less than %d bytes',
                                   self._fd.fileno(), len(data))
                     self._tosend.appendleft((data[sent:], addr))
-            except socket.error as msg:
+            except self._errorType as msg:
                 if msg.errno != errno.EAGAIN and msg.errno != errno.EINPROGRESS:
                     _logger.error('fd: %d, send: %s',
                                   self._fd.fileno(), os.strerror(msg.errno))
@@ -128,8 +121,9 @@ class NonBlocking(object):
             self._closeAgain()
 
     def send(self, data, addr=None):
-        if len(data) == 0:
+        if not data:
             return self._tosend_bytes
+
         if addr is not None:
             _logger.debug('sendto %s:%d %d bytes', addr[0], addr[1], len(data))
         else:
@@ -171,22 +165,19 @@ class NonBlocking(object):
                 self._decode(depth + 1, out, addr)
             remain[0] = remain[0][processed_bytes:]
 
+    def _recv(self, size):
+        raise Exception('not implemented')
+
     def _onReceive(self):
         _logger.debug('_onReceive')
         while True:
             try:
-                recv, addr = self._fd.recvfrom(65536)
+                recv, addr = self._recv(65536)
                 if len(recv) == 0:
                     self.close()
                     return
-                if addr is None:
-                    _logger.debug('fd: %d recv %d bytes',
-                                  self._fd.fileno(), len(recv))
-                else:
-                    _logger.debug('fd: %d recv %d bytes from %s:%d',
-                                  self._fd.fileno(), len(recv), addr[0], addr[1])
                 self.refreshTimer()
-            except socket.error as msg:
+            except self._errorType as msg:
                 if msg.errno != errno.EAGAIN and msg.errno != errno.EINPROGRESS:
                     _logger.error('fd: %d, recv: %s',
                                   self._fd.fileno(), os.strerror(msg.errno))
@@ -216,7 +207,7 @@ class NonBlocking(object):
             self._timeoutEv.delTimer()
             self._timeoutEv = None
 
-        self._fd.close()
+        self._close()
         self._connected = False
         if self._onClosed != None:
             try:
@@ -231,6 +222,9 @@ class NonBlocking(object):
             self._cev.delTimer()
             self._cev = None
         self.close()
+
+    def _close(self):
+        raise Exception('not implemented')
 
     def close(self):
         _logger.debug('close')
