@@ -58,9 +58,7 @@ def acceptSideReceiver(tunnel, header):
     back.connect(addr, port)
 
     def tunnelSent(self, sent, remain):
-        if remain > BUFFERSIZE:
-            back.stopReceiving()
-        else:
+        if remain <= BUFFERSIZE:
             back.beginReceiving()
 
     def tunnelReceived(self, data, _):

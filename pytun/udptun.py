@@ -55,9 +55,7 @@ def acceptSideReceiver(tunnel, header):
     back = Dgram()
 
     def udpTunnelSent(self, sent, remain):
-        if remain > BUFFERSIZE:
-            back.stopReceiving()
-        else:
+        if remain <= BUFFERSIZE:
             back.beginReceiving()
 
     def udpTunnelReceived(self, data, _):

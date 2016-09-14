@@ -8,31 +8,31 @@ _logger.setLevel(loglevel.gLevel)
 
 class Epoll:
 
-    __epoll = None
+    _epoll = None
 
     def __init__(self):
-        self.__registered_read = {}
-        self.__registered_write = {}
-        self.__fd_mask = {}
+        self._registered_read = {}
+        self._registered_write = {}
+        self._fd_mask = {}
 
-        self.__ready = []
+        self._ready = []
 
-        self.__fd = select.epoll()
+        self._fd = select.epoll()
 
     @staticmethod
     def debugPrint():
-        print("read: " + str(Epoll.__epoll.__registered_read))
-        print("write: " + str(Epoll.__epoll.__registered_write))
-        print("mask: " + str(Epoll.__epoll.__fd_mask))
+        print("read: " + str(Epoll._epoll._registered_read))
+        print("write: " + str(Epoll._epoll._registered_write))
+        print("mask: " + str(Epoll._epoll._fd_mask))
 
     @staticmethod
     def init():
-        Epoll.__epoll = Epoll()
+        Epoll._epoll = Epoll()
         # only one instance is allowed
-        Event.addEvent = staticmethod(lambda ev: Epoll.__epoll.register(ev))
-        Event.delEvent = staticmethod(lambda ev: Epoll.__epoll.unregister(ev))
-        Event.isEventSet = staticmethod(lambda ev: Epoll.__epoll.isset(ev))
-        Event.processEvents = staticmethod(lambda t: Epoll.__epoll.process_events(t))
+        Event.addEvent = staticmethod(lambda ev: Epoll._epoll.register(ev))
+        Event.delEvent = staticmethod(lambda ev: Epoll._epoll.unregister(ev))
+        Event.isEventSet = staticmethod(lambda ev: Epoll._epoll.isset(ev))
+        Event.processEvents = staticmethod(lambda t: Epoll._epoll.process_events(t))
 
     def register(self, event):
         if event.isWrite():
@@ -41,17 +41,17 @@ class Epoll:
             mask = select.EPOLLIN
 
         fd = event.getFd()
-        if not fd in self.__fd_mask:
-            self.__fd.register(fd, mask)
+        if not fd in self._fd_mask:
+            self._fd.register(fd, mask)
         else:
-            mask |= self.__fd_mask[fd]
-            self.__fd.modify(fd, mask)
-        self.__fd_mask[fd] = mask
+            mask |= self._fd_mask[fd]
+            self._fd.modify(fd, mask)
+        self._fd_mask[fd] = mask
 
         if event.isWrite():
-            self.__registered_write[fd] = event
+            self._registered_write[fd] = event
         else:
-            self.__registered_read[fd] = event;
+            self._registered_read[fd] = event;
 
     def unregister(self, event):
         if event.isWrite():
@@ -60,47 +60,48 @@ class Epoll:
             mask = select.EPOLLIN
 
         fd = event.getFd()
-        if not fd in self.__fd_mask:
+        if not fd in self._fd_mask or self._fd_mask[fd] & mask == 0:
             return
         else:
-            if self.__fd_mask[fd] & mask == 0:
-                return
-            mask = self.__fd_mask[fd] & ~mask
+            mask = self._fd_mask[fd] & ~mask
 
         if event.isWrite():
-            del self.__registered_write[fd]
+            del self._registered_write[fd]
         else:
-            del self.__registered_read[fd]
+            del self._registered_read[fd]
 
-        if fd in self.__registered_write or fd in self.__registered_read:
-            assert self.__fd_mask[fd] != 0
-            self.__fd.modify(fd, mask)
-            self.__fd_mask[fd] = mask
+        if fd in self._registered_write or fd in self._registered_read:
+            assert(mask != 0)
+            self._fd.modify(fd, mask)
+            self._fd_mask[fd] = mask
         else:
-            assert mask == 0
-            self.__fd.unregister(fd)
-            del self.__fd_mask[fd]
+            assert(mask == 0)
+            self._fd.unregister(fd)
+            del self._fd_mask[fd]
 
     def isset(self, event):
-        return event.getFd() in self.__fd_mask
+        return event.getFd() in self._fd_mask
 
     def process_events(self, timeout):
-        self.__ready = []
-        ready_list = self.__fd.poll(timeout)
+        self._ready = []
+        ready_list = self._fd.poll(timeout)
         for fd, ev_type in ready_list:
             handled = False
             if ev_type & select.EPOLLOUT:
-                if fd in self.__registered_write:
-                    self.__ready.append(self.__registered_write[fd])
+                if fd in self._registered_write:
+                    self._ready.append(self._registered_write[fd])
                     handled = True
             if ev_type & select.EPOLLIN:
-                if fd in self.__registered_read:
-                    self.__ready.append(self.__registered_read[fd])
+                if fd in self._registered_read:
+                    self._ready.append(self._registered_read[fd])
                     handled = True
             if not handled:
-                print('mask: %d' % self.__fd_mask[fd])
-                raise Exception("fd: %d, type: %s" % (fd, str(ev_type)))
+                _logger.warning("fd: %d, type: %s" % (fd, str(ev_type)))
+                if fd in self._registered_write:
+                    self._ready.append(self._registered_write[fd])
+                if fd in self._registered_read:
+                    self._ready.append(self._registered_read[fd])
 
-        for event in self.__ready:
+        for event in self._ready:
             event.getHandler()(event)
 

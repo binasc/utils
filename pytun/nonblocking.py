@@ -7,7 +7,7 @@ import logging
 import traceback
 
 import loglevel
-_logger = logging.getLogger('Stream')
+_logger = logging.getLogger('NonBlocking')
 _logger.setLevel(loglevel.gLevel)
 
 class NonBlocking(object):
@@ -71,8 +71,7 @@ class NonBlocking(object):
 
     def beginReceiving(self):
         _logger.debug('beginReceiving')
-        if self._cev != None and not self._connected:
-            _logger.warning('fd closed or not connected')
+        if self._cev != None or not self._connected:
             return
         Event.addEvent(self._rev)
 
