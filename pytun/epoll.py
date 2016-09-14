@@ -41,7 +41,7 @@ class Epoll:
             mask = select.EPOLLIN
 
         fd = event.getFd()
-        if not fd in self._fd_mask:
+        if fd not in self._fd_mask:
             self._fd.register(fd, mask)
         else:
             mask |= self._fd_mask[fd]
@@ -60,7 +60,7 @@ class Epoll:
             mask = select.EPOLLIN
 
         fd = event.getFd()
-        if not fd in self._fd_mask or self._fd_mask[fd] & mask == 0:
+        if fd not in self._fd_mask or self._fd_mask[fd] & mask == 0:
             return
         else:
             mask = self._fd_mask[fd] & ~mask
@@ -80,7 +80,13 @@ class Epoll:
             del self._fd_mask[fd]
 
     def isset(self, event):
-        return event.getFd() in self._fd_mask
+        fd = event.getFd()
+        if fd in self._fd_mask:
+            if event.isWrite():
+                return fd in self._registered_write
+            else:
+                return fd in self._registered_read
+        return False
 
     def process_events(self, timeout):
         self._ready = []

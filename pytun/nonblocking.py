@@ -71,7 +71,7 @@ class NonBlocking(object):
 
     def beginReceiving(self):
         _logger.debug('beginReceiving')
-        if self._cev != None or not self._connected:
+        if not self._connected or self._cev is not None:
             return
         Event.addEvent(self._rev)
 
@@ -91,17 +91,14 @@ class NonBlocking(object):
                 sent = self._send(data, addr)
                 sent_bytes += sent
                 if sent < len(data):
-                    _logger.debug('fd: %d sent less than %d bytes',
-                                  self._fd.fileno(), len(data))
                     self._tosend.appendleft((data[sent:], addr))
             except self._errorType as msg:
+                self._tosend.appendleft((data, addr))
                 if msg.errno != errno.EAGAIN and msg.errno != errno.EINPROGRESS:
                     _logger.error('fd: %d, send: %s',
                                   self._fd.fileno(), os.strerror(msg.errno))
                     self._error = True
                     self._closeAgain()
-                else:
-                    self._tosend.appendleft((data, addr))
                 break
 
         self._tosend_bytes -= sent_bytes
@@ -116,22 +113,21 @@ class NonBlocking(object):
 
         if len(self._tosend) == 0:
             Event.delEvent(self._wev)
-        if self._cev != None:
+        if not self._error and self._cev is not None:
             self._closeAgain()
 
     def send(self, data, addr=None):
-        if not data:
+        if not data or self._cev is not None:
             return self._tosend_bytes
 
         if addr is not None:
-            _logger.debug('sendto %s:%d %d bytes', addr[0], addr[1], len(data))
+            _logger.debug('sending %d bytes to %s:%d', len(data), addr[0], addr[1])
         else:
             _logger.debug('sending %d bytes', len(data))
-        if self._cev != None:
-            return
 
-        if len(self._tosend) == 0 and self._connected:
+        if self._connected and len(self._tosend) == 0:
             Event.addEvent(self._wev)
+
         for encoder in self._encoders:
             data = encoder(data)
         self._tosend.append((data, addr))
@@ -192,9 +188,9 @@ class NonBlocking(object):
                 _logger.error('decode: %s', e)
                 self._error = True
                 self._closeAgain()
-            else:
-                if not Event.isEventSet(self._rev):
-                    break
+
+            if not Event.isEventSet(self._rev):
+                break
 
     def _onClose(self):
         _logger.debug('_onClose')
@@ -217,7 +213,7 @@ class NonBlocking(object):
 
     def _closeAgain(self):
         _logger.debug('_closeAgain')
-        if self._cev != None:
+        if self._cev is not None:
             self._cev.delTimer()
             self._cev = None
         self.close()
@@ -227,7 +223,7 @@ class NonBlocking(object):
 
     def close(self):
         _logger.debug('close')
-        if self._cev != None:
+        if self._cev is not None:
             return
         _logger.debug('fd: %d closing', self._fd.fileno())
 
@@ -259,7 +255,7 @@ class NonBlocking(object):
             self._timeoutEv.setHandler(lambda ev: self._onTimeout())
 
     def setTimeout(self, timeout):
-        if self._cev != None:
+        if self._cev is not None:
             return
 
         if self._timeoutEv is not None:
