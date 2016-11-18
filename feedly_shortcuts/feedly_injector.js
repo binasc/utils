@@ -65,17 +65,29 @@ var adjustFontSize = function (v) {
 
 var adjustWidth = function (v) {
     if (localStorage.getItem('width') == null) {
-        localStorage.setItem('width', 680);
+        localStorage.setItem('width', 647);
     }
     width = parseInt(localStorage.getItem('width')) + v;
     localStorage.setItem('width', width);
 
     divWidthStyle.textContent = 
-        '#mainArea div.entryholder div.u100Entry {' +
+        'div.entryholder div.u100Entry {' +
             'max-width: ' + width + 'px' +
         '}' +
         'div.entryBody {' +
             'max-width: ' + width + 'px' +
+        '}' +
+        'span.pinContainer img {' +
+            'margin-left: ' + (width - 578) / 2 + 'px' +
+        '}' +
+        'span.pinContainer .pin {' +
+            'margin-left: ' + (width - 578) / 2 + 'px' +
+        '}' +
+        'span.pinContainer .epin {' +
+            'margin-left: ' + ((width - 578) / 2 + 65) + 'px' +
+        '}' +
+        'span.pinContainer .opin {' +
+            'margin-left: ' + ((width - 578) / 2 + 97) + 'px' +
         '}';
 };
 

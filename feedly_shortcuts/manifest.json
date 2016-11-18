@@ -3,7 +3,7 @@
 
   "name": "feedly shortcuts",
   "description": "This extension supplies shortcuts adjusting font-size and width of feed content for feedly",
-  "version": "1.1.4",
+  "version": "1.1.5",
 
   "icons": {
     "16": "icon16.png",
