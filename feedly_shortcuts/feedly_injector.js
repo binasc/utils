@@ -78,16 +78,16 @@ var adjustWidth = function (v) {
             'max-width: ' + width + 'px' +
         '}' +
         'span.pinContainer img {' +
-            'margin-left: ' + (width - 578) / 2 + 'px' +
+            'margin-left: ' + (width - 578) / 2 + 'px !important' +
         '}' +
         'span.pinContainer .pin {' +
-            'margin-left: ' + (width - 578) / 2 + 'px' +
+            'margin-left: ' + ((width - 578) / 2 + 4)+ 'px' +
         '}' +
         'span.pinContainer .epin {' +
-            'margin-left: ' + ((width - 578) / 2 + 65) + 'px' +
+            'margin-left: ' + ((width - 578) / 2 + 65 + 4) + 'px' +
         '}' +
         'span.pinContainer .opin {' +
-            'margin-left: ' + ((width - 578) / 2 + 97) + 'px' +
+            'margin-left: ' + ((width - 578) / 2 + 97 + 4) + 'px' +
         '}';
 };
 
