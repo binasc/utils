@@ -148,10 +148,10 @@ class RssHandler(webapp2.RequestHandler):
         begin = time.time()
 
         rss = self.request.get('url')
-        if rss == None:
-            self.response.status = 400
-            return
-        rss = urllib.unquote(rss)
+        if not rss:
+            rss = "http://rss.mydrivers.com/rss.aspx?Tid=1"
+        else:
+            rss = urllib.unquote(rss)
 
         urlfetch.set_default_fetch_deadline(5)
         xml = fetchWebContent(rss)
