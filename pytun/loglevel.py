@@ -1,5 +1,5 @@
 import logging
 
-gLevel = logging.INFO
+gLevel = logging.DEBUG
 
 logging.basicConfig(level=gLevel)
