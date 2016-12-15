@@ -52,8 +52,8 @@ class Acceptor:
                     if self._onClosed != None:
                         try:
                             self._onClosed(self)
-                        except:
-                            _logger.error('_onClosed: %s', e)
+                        except Exception as ex:
+                            _logger.error('_onClosed: %s', str(ex))
                             _logger.exception(traceback.format_exc())
                 return
             else:
