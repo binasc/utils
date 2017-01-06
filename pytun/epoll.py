@@ -109,5 +109,8 @@ class Epoll:
                     self._ready.append(self._registered_read[fd])
 
         for event in self._ready:
-            event.getHandler()(event)
+            try:
+                event.getHandler()(event)
+            except Exception as ex:
+                _logger.warning('event handler exception: %s' % str(ex))
 

@@ -42,8 +42,8 @@ class Stream(NonBlocking):
         self._wev.setHandler(lambda ev: self._onSend())
         if len(self._tosend) == 0:
             Event.delEvent(self._wev)
-            
-        if self._onConnected != None:
+
+        if self._onConnected is not None:
             try:
                 self._onConnected(self)
             except Exception as e:
@@ -57,7 +57,7 @@ class Stream(NonBlocking):
 
     def connect(self, addr, port):
         _logger.debug('connect')
-        if self._cev != None:
+        if self._cev is not None:
             return
 
         self._wev.setHandler(lambda ev: self._checkConnected())

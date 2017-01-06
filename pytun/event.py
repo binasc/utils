@@ -63,13 +63,15 @@ class Event:
         current = time.time()
         while len(Event.__timers) > 0:
             timeout, event = Event.__timers[0]
-            if not event.__timer_set:
-                heapq.heappop(Event.__timers)
-            elif timeout > current:
+            if timeout > current:
                 break
             else:
                 heapq.heappop(Event.__timers)
-                event.__handler(event)
+                if event.__timer_set:
+                    try:
+                        event.__handler(event)
+                    except:
+                        pass
 
     addEvent = None
     delEvent = None
