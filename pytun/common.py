@@ -11,6 +11,7 @@ BUFFSIZE = 1024 ** 2
 
 def initializeTunnel(tunnel, isRequest=True):
     tunnel.setBufferSize(BUFFSIZE)
+    tunnel.setTCPNoDelay()
     try:
         tunnel.setCongAlgorithm('hybla')
     except Exception as ex:

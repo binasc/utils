@@ -27,6 +27,9 @@ class Stream(NonBlocking):
         TCP_CONGESTION = getattr(socket, 'TCP_CONGESTION', 13)
         self._fd.setsockopt(socket.IPPROTO_TCP, TCP_CONGESTION, algo)
 
+    def setTCPNoDelay(self):
+        self._fd.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
     def setOnConnected(self, onConnected):
         self._onConnected = onConnected
 
