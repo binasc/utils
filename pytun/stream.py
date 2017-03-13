@@ -2,12 +2,10 @@ import os
 import socket
 import errno
 from event import Event
-import logging
 import traceback
 
 import loglevel
-_logger = logging.getLogger('Stream')
-_logger.setLevel(loglevel.gLevel)
+_logger = loglevel.getLogger('stream')
 
 from nonblocking import NonBlocking
 

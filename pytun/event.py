@@ -1,9 +1,8 @@
 import time
 import heapq
-import logging
-import loglevel
 
-_logger = logging.getLogger('Event')
+import loglevel
+_logger = loglevel.getLogger('event')
 _logger.setLevel(loglevel.gLevel)
 
 class Event:

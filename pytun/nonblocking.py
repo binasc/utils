@@ -3,11 +3,10 @@ import socket
 import errno
 from event import Event
 from collections import deque
-import logging
 import traceback
 
 import loglevel
-_logger = logging.getLogger('NonBlocking')
+_logger = loglevel.getLogger('nonblocking')
 _logger.setLevel(loglevel.gLevel)
 
 class NonBlocking(object):
@@ -121,22 +120,25 @@ class NonBlocking(object):
 
     def send(self, data, addr=None):
         _logger.debug('send')
-        if not data or self._cev is not None:
-            return self._tosend_bytes
+        if self._cev is not None:
+            return
 
         if addr is not None:
             _logger.debug('sending %d bytes to %s:%d', len(data), addr[0], addr[1])
         else:
             _logger.debug('sending %d bytes', len(data))
 
-        if self._connected and len(self._tosend) == 0:
-            Event.addEvent(self._wev)
-
         for encoder in self._encoders:
             data = encoder(data)
+
         self._tosend.append((data, addr))
         self._tosend_bytes += len(data)
         self.refreshTimer()
+
+        if self._connected:
+            Event.addEvent(self._wev)
+
+    def pendingBytes(self):
         return self._tosend_bytes
 
     class RecvCBException(Exception):
@@ -230,15 +232,14 @@ class NonBlocking(object):
             return
         _logger.debug('fd: %d closing', self._fd.fileno())
 
+        self.removeTimeout()
+
         timeout = 0
         if not self._error and self._connected and len(self._tosend) > 0:
             timeout = 60000
 
         if timeout == 0:
             Event.delEvent(self._wev)
-
-        # remove timeout event
-        self.setTimeout(0)
 
         Event.delEvent(self._rev)
         self._cev = Event.addTimer(timeout)
@@ -250,13 +251,8 @@ class NonBlocking(object):
 
     def refreshTimer(self):
         _logger.debug('refreshTimer')
-        if self._timeoutEv is None:
-            return
-
-        self._timeoutEv.delTimer()
-        if self._timeout > 0:
-            self._timeoutEv = Event.addTimer(self._timeout)
-            self._timeoutEv.setHandler(lambda ev: self._onTimeout())
+        if self._timeoutEv is not None:
+            self.setTimeout(self._timeout)
 
     def setTimeout(self, timeout):
         _logger.debug('setTimeout')
@@ -264,11 +260,15 @@ class NonBlocking(object):
             return
 
         if self._timeoutEv is not None:
-            self._timeoutEv.delTimer()
-            self._timeoutEv = None
+            self.removeTimeout()
 
         self._timeout = timeout
-        if self._timeout > 0:
-            self._timeoutEv = Event.addTimer(self._timeout)
-            self._timeoutEv.setHandler(lambda ev: self._onTimeout())
+        self._timeoutEv = Event.addTimer(self._timeout)
+        self._timeoutEv.setHandler(lambda ev: self._onTimeout())
+
+    def removeTimeout(self):
+        _logger.debug('removeTimeout')
+        if self._timeoutEv is not None:
+            self._timeoutEv.delTimer()
+            self._timeoutEv = None
 

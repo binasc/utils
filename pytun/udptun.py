@@ -1,12 +1,11 @@
 import json
 import common
-import logging
 from stream import Stream
 from dgram import Dgram
 
+import logging
 import loglevel
-_logger = logging.getLogger('Udptun')
-_logger.setLevel(loglevel.gLevel)
+_logger = loglevel.getLogger('ucptun', logging.INFO)
 
 BUFFERSIZE = 512 * 1024
 
@@ -26,7 +25,7 @@ def genOnReceived(via, to):
         if addrPort in addr2Stream:
             tunnel = addr2Stream[addrPort]
         else:
-            _logger.debug('new Dgram from: %s:%d' % from_)
+            _logger.info('new Dgram from: %s:%d' % from_)
 
             tunnel = Stream()
             common.initializeTunnel(tunnel)
@@ -35,12 +34,19 @@ def genOnReceived(via, to):
 
             addr2Stream[addrPort] = tunnel
 
+            def tunnelSent(self, sent, remain):
+                _logger.info("%s:%d --> %s:%d %d bytes" % (
+                             from_[0], from_[1], to[0], int(to[1]), sent))
+
             def tunnelReceived(self, data, _):
+                _logger.info("%s:%d <-- %s:%d %d bytes" % (
+                             from_[0], from_[1], to[0], int(to[1]), len(data)))
                 front.send(data, from_)
 
             def tunnelClosed(self):
                 del addr2Stream[addrPort]
 
+            tunnel.setOnSent(tunnelSent)
             tunnel.setOnReceived(tunnelReceived)
             tunnel.setOnClosed(tunnelClosed)
 
@@ -65,7 +71,8 @@ def acceptSideReceiver(tunnel, header):
         back.close()
 
     def udpBackendReceived(self, data, _):
-        pending = tunnel.send(data)
+        tunnel.send(data)
+        pending = tunnel.pendingBytes()
         if pending > BUFFERSIZE:
             self.stopReceiving()
 

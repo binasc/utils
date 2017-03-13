@@ -1,9 +1,7 @@
 import socket
-import logging
 
 import loglevel
-_logger = logging.getLogger('Dgram')
-_logger.setLevel(loglevel.gLevel)
+_logger = loglevel.getLogger('dgram')
 
 from nonblocking import NonBlocking
 

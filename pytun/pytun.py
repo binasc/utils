@@ -3,23 +3,22 @@ import sys
 import epoll
 import event
 import threading
-from acceptor import Acceptor
-from dgram import Dgram
-from tundevice import TunDevice
 import getopt
-import logging
 import struct
 import subprocess
 import json
+
+import loglevel
+_logger = loglevel.getLogger('main')
+
+from acceptor import Acceptor
+from dgram import Dgram
+from tundevice import TunDevice
 
 import common
 import tcptun
 import udptun
 import tuntun
-
-import loglevel
-_logger = logging.getLogger('Main')
-_logger.setLevel(loglevel.gLevel)
 
 def processAcceptSideArgument(arg):
     serverlist = []
@@ -67,7 +66,7 @@ def acceptSideOnReceived(tunnel, header, _):
     elif header['type'] == 'tun':
         tuntun.acceptSideReceiver(tunnel, header)
 
-def acceptSideOnAccepted(tunnel):
+def acceptSideOnAccepted(tunnel, _):
 
     def genHeaderHandler():
         enable = [True]
@@ -104,7 +103,6 @@ if __name__ == '__main__':
     AcceptMode = False
     ConnectMode = False
 
-    logging.basicConfig(level=logging.DEBUG)
     optlist, args = getopt.getopt(sys.argv[1:], 'A:C:h')
     for cmd, arg in optlist:
         if cmd == '-A':
@@ -148,8 +146,8 @@ if __name__ == '__main__':
                 acceptor.setOnReceived(udptun.genOnReceived(via, to))
                 acceptor.beginReceiving()
             elif type_ == 'tun':
-                # XXX: use port as prefix
-                acceptor = TunDevice('tun', addr, '255.255.255.0')
+                # port as cidr prefix
+                acceptor = TunDevice('tun', addr, port)
                 acceptor.setOnReceived(tuntun.genOnReceived(via, to))
                 acceptor.beginReceiving()
                 def pingThread():

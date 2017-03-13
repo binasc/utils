@@ -1,20 +1,16 @@
 import json
 import common
-import logging
 from event import Event
 from stream import Stream
 from tundevice import TunDevice
 import uuid
 
 import loglevel
-_logger = logging.getLogger('Tuntun')
-_logger.setLevel(loglevel.gLevel)
+_logger = loglevel.getLogger('tuntun')
 
 BUFFERSIZE =  8 * (1024 ** 2)
 
-MAX_CONNECTION = 500
-src2Stream = [None] * MAX_CONNECTION
-dst2stream = [None] * MAX_CONNECTION
+MAX_CONNECTION = 100
 
 to2tun = {}
 
@@ -31,18 +27,22 @@ def genOnReceived(via, to):
             'srcPort': src[1],
         }))
 
-    def connectSideMultiplex(front, data, proto, src, dst):
+    def connectSideMultiplex(tunDevice, data, proto, src, dst):
         srcAddr, srcPort = src 
         addrPort = srcAddr + ':' + str(srcPort)
-
         sid = hash(addrPort) % MAX_CONNECTION
-        if src2Stream[sid] is not None:
-            tunnel = src2Stream[sid]
-        else:
+
+        tunnel = None
+        try:
+            tunnel = tunDevice.src2Stream[sid]
+        except:
+            tunDevice.src2Stream = [None] * MAX_CONNECTION
+
+        if tunnel is None:
             tunnel = Stream()
             tunnel.connect(viaAddr, viaPort)
             common.initializeTunnel(tunnel)
-            src2Stream[sid] = tunnel
+            tunDevice.src2Stream[sid] = tunnel
             _logger.debug('new TunCon from: %s:%d', srcAddr, srcPort)
 
             tunnel.send(generateHeader(src))
@@ -53,13 +53,15 @@ def genOnReceived(via, to):
                 tunnel.setTimeout(10 * 60 * 1000)
 
             def tunnelReceived(self, data, _):
-                front.send(data)
+                tunDevice.send(data)
 
             def reconnectHandler(ev):
+                if tunDevice.src2Stream[sid] is not None:
+                    return
                 tunnel = Stream()
                 tunnel.connect(viaAddr, viaPort)
                 common.initializeTunnel(tunnel)
-                src2Stream[sid] = tunnel
+                tunDevice.src2Stream[sid] = tunnel
                 _logger.debug('reconnect TunCon from: %s:%d', srcAddr, srcPort)
                 tunnel.send(generateHeader(src))
                 tunnel.setTimeout(60 * 1000)
@@ -67,11 +69,10 @@ def genOnReceived(via, to):
                 tunnel.setOnClosed(tunnelClosed)
 
             def tunnelClosed(self):
+                tunDevice.src2Stream[sid] = None
                 if srcPort == 0:
                     reconnectEv = Event.addTimer(500)
                     reconnectEv.setHandler(reconnectHandler)
-                else:
-                    src2Stream[sid] = None
 
             tunnel.setOnReceived(tunnelReceived)
             tunnel.setOnClosed(tunnelClosed)
@@ -88,23 +89,19 @@ def acceptSideReceiver(tunnel, header):
     srcAddr = header['srcAddr']
     srcPort = header['srcPort']
 
-    srcSid = hash(srcAddr + ':' + str(srcPort)) % MAX_CONNECTION
-    tunnel.uuid = str(uuid.uuid4())
-    dst2stream[srcSid] = tunnel
-
     def tunDeviceReceived(self, data, proto, src, dst):
         dstAddr, dstPort = dst
         dstSid  = hash(dstAddr + ':' + str(dstPort)) % MAX_CONNECTION
         #if proto == 'tcp':
         #    data = data * 2
-        if dst2stream[dstSid] is not None:
-            tunnel = dst2stream[dstSid]
+        if dstSid in self.dst2Stream:
+            tunnel = self.dst2Stream[dstSid]
         else:
             dstSid  = hash(dstAddr + ':0') % MAX_CONNECTION
-            if dst2stream[dstSid] is not None:
-                tunnel = dst2stream[dstSid]
+            if dstSid in self.dst2Stream:
+                tunnel = self.dst2Stream[dstSid]
             else:
-                _logger.warning('unknown dst %s:%s', dstAddr, str(dstPort))
+                _logger.warning('unknown dst %s:%d', dstAddr, dstPort)
                 return
 
         before = tunnel.send(None)
@@ -117,12 +114,23 @@ def acceptSideReceiver(tunnel, header):
     if addrPort in to2tun:
         tunDevice = to2tun[addrPort]
     else:
-        # TODO
-        tunDevice = TunDevice('tun', addr, '255.255.255.0')
+        # port as cidr prefix
+        tunDevice = TunDevice('tun', addr, port)
         tunDevice.pending = 0
+        tunDevice.dst2Stream = {}
         tunDevice.setOnReceived(tunDeviceReceived)
         tunDevice.beginReceiving()
         to2tun[addrPort] = tunDevice
+
+    srcSid = hash(srcAddr + ':' + str(srcPort)) % MAX_CONNECTION
+    try:
+        _ = tunnel.uuid
+    except:
+        tunnel.uuid = str(uuid.uuid4())
+    if srcSid in tunDevice.dst2Stream:
+        if tunDevice.dst2Stream[srcSid].uuid != tunnel.uuid:
+            tunDevice.dst2Stream[srcSid].close()
+    tunDevice.dst2Stream[srcSid] = tunnel
 
     def tunDeviceTunnelSent(self, sent, remain):
         tunDevice.pending -= sent
@@ -138,9 +146,9 @@ def acceptSideReceiver(tunnel, header):
         if tunDevice.pending <= BUFFERSIZE:
             tunDevice.beginReceiving()
 
-        if dst2stream[srcSid] is not None:
-            if dst2stream[srcSid].uuid == self.uuid:
-                dst2stream[srcSid] = None
+        if srcSid in tunDevice.dst2Stream:
+            if tunDevice.dst2Stream[srcSid].uuid == self.uuid:
+                del tunDevice.dst2Stream[srcSid]
 
     tunnel.setOnSent(tunDeviceTunnelSent)
     tunnel.setOnReceived(tunDeviceTunnelReceived)

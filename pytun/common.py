@@ -1,10 +1,8 @@
 import struct
 import obscure
-import logging
 
 import loglevel
-_logger = logging.getLogger('common')
-_logger.setLevel(loglevel.gLevel)
+_logger = loglevel.getLogger('common')
 
 # 1MB
 BUFFSIZE = 1024 ** 2

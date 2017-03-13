@@ -1,11 +1,10 @@
 import json
 import common
-import logging
 from stream import Stream
 
+import logging
 import loglevel
-_logger = logging.getLogger('Tcptun')
-_logger.setLevel(loglevel.gLevel)
+_logger = loglevel.getLogger('tcptun', logging.INFO)
 
 BUFFERSIZE = 512 * 1024
 
@@ -17,18 +16,28 @@ def genOnAccepted(via, to):
         'port': to[1]
     }))
 
-    def onAccepted(front):
+    def onAccepted(front, from_):
         _logger.debug('onAccepted')
+
+        _logger.info("from %s:%d connected" % from_)
 
         tunnel = Stream()
         common.initializeTunnel(tunnel)
         tunnel.connect(via[0], via[1])
         tunnel.send(header)
 
+        def tunnelSent(self, sent, remain):
+            _logger.info("%s:%d --> %s:%d %d bytes" % (
+                         from_[0], from_[1], to[0], int(to[1]), sent))
+
         def tunnelReceived(self, data, _):
+            _logger.info("%s:%d <-- %s:%d %d bytes" % (
+                         from_[0], from_[1], to[0], int(to[1]), len(data)))
             front.send(data)
 
         def tunnelClosed(self):
+            _logger.info("%s:%d <-> %s:%d closed" % (
+                         from_[0], from_[1], to[0], int(to[1])))
             front.close()
 
         def frontendReceived(self, data, _):
@@ -37,6 +46,7 @@ def genOnAccepted(via, to):
         def frontendClosed(self):
             tunnel.close()
 
+        tunnel.setOnSent(tunnelSent)
         tunnel.setOnReceived(tunnelReceived)
         tunnel.setOnClosed(tunnelClosed)
         try:
@@ -68,7 +78,8 @@ def acceptSideReceiver(tunnel, header):
         back.close()
 
     def backendReceived(self, data, _):
-        pending = tunnel.send(data)
+        tunnel.send(data)
+        pending = tunnel.pendingBytes()
         if pending > BUFFERSIZE:
             self.stopReceiving()
 

@@ -1,10 +1,8 @@
 import select
 from event import Event
-import logging
-import loglevel
 
-_logger = logging.getLogger('Epoll')
-_logger.setLevel(loglevel.gLevel)
+import loglevel
+_logger = loglevel.getLogger('epoll')
 
 class Epoll:
 
@@ -110,7 +108,8 @@ class Epoll:
 
         for event in self._ready:
             try:
-                event.getHandler()(event)
+                if self.isset(event):
+                    event.getHandler()(event)
             except Exception as ex:
                 _logger.warning('event handler exception: %s' % str(ex))
 

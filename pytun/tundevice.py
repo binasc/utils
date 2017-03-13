@@ -7,12 +7,10 @@ import struct
 from event import Event
 from collections import deque
 from functools import partial
-import logging
 import traceback
 
 import loglevel
-_logger = logging.getLogger('TunDevice')
-_logger.setLevel(loglevel.gLevel)
+_logger = loglevel.getLogger('tundevice')
 
 from nonblocking import NonBlocking
 
@@ -70,7 +68,11 @@ class TunDevice(NonBlocking):
         ifs = fcntl.ioctl(fd, self.TUNSETIFF, ctlstr)
         self._ifname = ifs[:16].strip("\x00")
 
-        cmd = 'ifconfig %s %s netmask %s mtu 9000 up' % (self._ifname, ip, netmask)
+        if isinstance(netmask, int):
+            # convert cidr prefix to netmask
+            netmask = '.'.join([str((0xffffffff << (32 - netmask) >> i) & 0xff)
+                                for i in [24, 16, 8, 0]])
+        cmd = 'ifconfig %s %s netmask %s up' % (self._ifname, ip, netmask)
         _logger.debug('ifconfig cmd: ' + cmd)
         subprocess.check_call(cmd, shell=True)
 

@@ -3,12 +3,10 @@ import socket
 import errno
 from event import Event
 from stream import Stream
-import logging
 import traceback
 
 import loglevel
-_logger = logging.getLogger('Acceptor')
-_logger.setLevel(loglevel.gLevel)
+_logger = loglevel.getLogger('acceptor')
 
 class Acceptor:
 
@@ -60,7 +58,7 @@ class Acceptor:
                 newstream = Stream(sock)
                 newstream._connected = True
                 try:
-                    self._onAccepted(newstream)
+                    self._onAccepted(newstream, addr)
                 except Exception as e:
                     _logger.error('_onAccepted: %s', e)
                     _logger.exception(traceback.format_exc())
