@@ -59,7 +59,7 @@ def genOnAccepted(via, to):
 
     return onAccepted 
 
-def acceptSideReceiver(tunnel, header):
+def acceptSideReceiver(tunnel, header, recv=None):
     addr = header['addr']
     port = header['port']
 
@@ -95,4 +95,6 @@ def acceptSideReceiver(tunnel, header):
         _logger.warning('setCongAlgorithm failed: %s' % str(ex))
     back.setOnReceived(backendReceived)
     back.setOnClosed(backendClosed)
+    if recv is not None:
+        back.send(recv)
 

@@ -5,7 +5,7 @@ from dgram import Dgram
 
 import logging
 import loglevel
-_logger = loglevel.getLogger('ucptun', logging.INFO)
+_logger = loglevel.getLogger('udptun', logging.INFO)
 
 BUFFERSIZE = 512 * 1024
 

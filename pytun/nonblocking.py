@@ -46,6 +46,9 @@ class NonBlocking(object):
 
         self._errorType = socket.error
 
+        self._decodeError = False
+        self._onDecodeError = None
+
     def __hash__(self):
         return hash(self._fd.fileno())
 
@@ -63,6 +66,9 @@ class NonBlocking(object):
 
     def setOnClosed(self, onClosed):
         self._onClosed = onClosed
+
+    def setOnDecodeError(self, onDecodeError):
+        self._onDecodeError = onDecodeError
 
     def appendSendHandler(self, handler):
         self._encoders.append(handler)
@@ -187,13 +193,25 @@ class NonBlocking(object):
                 return
 
             try:
-                self._decode(0, recv, addr)
+                if self._decodeError:
+                    self._onDecodeError(self, recv)
+                else:
+                    self._decode(0, recv, addr)
             except self.RecvCBException:
                 pass
-            except Exception as e:
-                _logger.error('decode: %s', e)
-                self._error = True
-                self._closeAgain()
+            except Exception as ex:
+                _logger.error('decode: %s', str(ex))
+                if self._onDecodeError is not None:
+                    try:
+                        self._onDecodeError(self, recv)
+                        self._decodeError = True
+                    except Exception as ex:
+                        _logger.error("_onDecodeError: %s", str(ex))
+                        self._error = True
+                        self._closeAgain()
+                else:
+                    self._error = True
+                    self._closeAgain()
 
             if not Event.isEventSet(self._rev):
                 break

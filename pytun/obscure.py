@@ -171,12 +171,17 @@ def genHttpDecode():
             if httplength > 8192:
                 raise Exception('http headers too large')
             if firstline:
+                if line != 'POST /upload HTTP/1.1':
+                    raise Exception('unknown first line')
                 firstline = False
                 continue
             if len(line) > 0:
                 header, content = line.split(':')
                 if header.strip().lower() == 'content-length':
                     contentlength = int(content.strip())
+                elif header.strip().lower() == 'host':
+                    if content != 'li.binasc.com':
+                        raise Exception('known host')
             else:
                 remain[0] = contentlength
                 data, payloadlength = consumeData(data)

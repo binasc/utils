@@ -20,6 +20,9 @@ import tcptun
 import udptun
 import tuntun
 
+UNKNOWN_CONN_ADDR = "127.0.0.1"
+UNKNOWN_CONN_PORT = 8080
+
 def processAcceptSideArgument(arg):
     serverlist = []
     hostlist = arg.split(',')
@@ -66,6 +69,14 @@ def acceptSideOnReceived(tunnel, header, _):
     elif header['type'] == 'tun':
         tuntun.acceptSideReceiver(tunnel, header)
 
+def acceptSideUnknownConnection(tunnel, recv):
+    header = {}
+    header['addr'] = UNKNOWN_CONN_ADDR
+    header['port'] = UNKNOWN_CONN_PORT
+    # TODO: pay attention to BUFFER SIZE
+    tunnel._encoders = []
+    tcptun.acceptSideReceiver(tunnel, header, recv)
+
 def acceptSideOnAccepted(tunnel, _):
 
     def genHeaderHandler():
@@ -88,6 +99,7 @@ def acceptSideOnAccepted(tunnel, _):
 
     tunnel.appendReceiveHandler(genHeaderHandler())
     tunnel.setOnReceived(acceptSideOnReceived)
+    tunnel.setOnDecodeError(acceptSideUnknownConnection)
     tunnel.beginReceiving()
 
 def acceptorOnClosed(self):
