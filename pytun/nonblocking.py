@@ -49,6 +49,8 @@ class NonBlocking(object):
         self._decodeError = False
         self._onDecodeError = None
 
+        self._timers = {}
+
     def __hash__(self):
         return hash(self._fd.fileno())
 
@@ -139,7 +141,7 @@ class NonBlocking(object):
 
         self._tosend.append((data, addr))
         self._tosend_bytes += len(data)
-        self.refreshTimer()
+        self.refreshTimeout()
 
         if self._connected:
             Event.addEvent(self._wev)
@@ -183,7 +185,7 @@ class NonBlocking(object):
                 if len(recv) == 0:
                     self.close()
                     return
-                self.refreshTimer()
+                self.refreshTimeout()
             except self._errorType as msg:
                 if msg.errno != errno.EAGAIN and msg.errno != errno.EINPROGRESS:
                     _logger.error('fd: %d, recv: %s',
@@ -222,6 +224,10 @@ class NonBlocking(object):
     def _onClose(self):
         _logger.debug('_onClose')
         _logger.debug('fd: %d closed', self._fd.fileno())
+
+        for name in self._timers:
+            delTimer(name)
+
         # in case of timeout happened
         Event.delEvent(self._wev)
 
@@ -267,8 +273,8 @@ class NonBlocking(object):
         _logger.debug('_onTimeout')
         self.close()
 
-    def refreshTimer(self):
-        _logger.debug('refreshTimer')
+    def refreshTimeout(self):
+        _logger.debug('refreshTimeout')
         if self._timeoutEv is not None:
             self.setTimeout(self._timeout)
 
@@ -289,4 +295,32 @@ class NonBlocking(object):
         if self._timeoutEv is not None:
             self._timeoutEv.delTimer()
             self._timeoutEv = None
+
+    def _genOnTimer(self, name, handler):
+        def onTimer(ev):
+            if not name in self._timers:
+                return
+            del self._timers[name]
+            try:
+                handler(self)
+            except Exception as ex:
+                _logger.error('timer handler exception: ' + str(ex))
+
+        return onTimer
+
+    def addTimer(self, name, timer, handler):
+        _logger.error('addTimer')
+        if self._cev is not None:
+            return
+
+        if name in self._timers:
+            raise Exception('timer: ' + name + ' already exists')
+
+        timerEv = Event.addTimer(timer)
+        timerEv.setHandler(self._genOnTimer(name, handler))
+        self._timers[name] = timerEv
+
+    def delTimer(self, name):
+        self._timers[name].delTimer()
+        del self._timers[name]
 
