@@ -137,7 +137,7 @@ def genHttpEncode(request):
         return tosend
     return httpEncode
 
-def genHttpDecode():
+def genHttpDecode(request):
     def getLine(data):
         pos = data.find('\r\n')
         if pos == -1:
@@ -171,7 +171,7 @@ def genHttpDecode():
             if httplength > 8192:
                 raise Exception('http headers too large')
             if firstline:
-                if line != 'POST /upload HTTP/1.1':
+                if not request and line != 'POST /upload HTTP/1.1':
                     raise Exception('unknown first line: ' + line.strip()[0:32])
                 firstline = False
                 continue
@@ -179,7 +179,7 @@ def genHttpDecode():
                 header, content = line.split(':')
                 if header.strip().lower() == 'content-length':
                     contentlength = int(content.strip())
-                elif header.strip().lower() == 'host':
+                elif not request and header.strip().lower() == 'host':
                     if content.strip() != 'li.binasc.com':
                         raise Exception('unknown host: ' + content.strip()[0:32])
             else:

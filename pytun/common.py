@@ -19,7 +19,7 @@ def initializeTunnel(tunnel, isRequest=True):
     tunnel.appendSendHandler(obscure.genXorEncrypt())
     tunnel.appendSendHandler(obscure.base64encode)
     tunnel.appendSendHandler(obscure.genHttpEncode(isRequest))
-    tunnel.appendReceiveHandler(obscure.genHttpDecode())
+    tunnel.appendReceiveHandler(obscure.genHttpDecode(isRequest))
     tunnel.appendReceiveHandler(obscure.base64deocde)
     tunnel.appendReceiveHandler(obscure.genXorDecrypt())
     #tunnel.appendReceiveHandler(obscure.genAesDecrypt())
