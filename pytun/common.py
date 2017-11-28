@@ -25,15 +25,20 @@ def initializeTunnel(tunnel, isRequest=True):
     #tunnel.appendReceiveHandler(obscure.genAesDecrypt())
     tunnel.appendReceiveHandler(obscure.unpackData)
 
-def wrapContent(content):
-    return struct.pack('!I', len(content)) + content
+def wrapContent(json, data=''):
+    _logger.debug('header: %s, len(data): %d', json, len(data))
+    return struct.pack('!HI', len(json), len(data)) + json + data
 
 def unwrapContent(data):
-    if len(data) < 4:
-        return (None, 0)
+    if len(data) < 6:
+        raise Exception('corrupted data')
 
-    length = struct.unpack('!I', data[:4])[0]
-    if len(data) - 4 < length:
-        return (None, 0)
+    jsonLength, dataLength = struct.unpack('!HI', data[:6])
+    totalLength = dataLength + jsonLength
+    if len(data) - 6 != totalLength:
+        raise Exception('corrupted data')
 
-    return (data[4:length+4], length+4)
+    json = data[6 : 6 + jsonLength]
+    data = data[6 + jsonLength : 6 + totalLength]
+    _logger.debug('header: %s, len(data): %d', json, len(data))
+    return (json, data)

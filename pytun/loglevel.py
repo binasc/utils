@@ -5,7 +5,7 @@ formatter = logging.Formatter(fmt='%(asctime)-15s %(name)s %(levelname)s %(messa
 handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(formatter)
 
-gLevel = logging.WARNING
+gLevel = logging.DEBUG
 logging.basicConfig(fmt=formatter)
 
 def getLogger(name, level=gLevel):

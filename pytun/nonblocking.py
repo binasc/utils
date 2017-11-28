@@ -226,7 +226,7 @@ class NonBlocking(object):
         _logger.debug('fd: %d closed', self._fd.fileno())
 
         for name in self._timers:
-            delTimer(name)
+            self.delTimer(name)
 
         # in case of timeout happened
         Event.delEvent(self._wev)
@@ -309,7 +309,7 @@ class NonBlocking(object):
         return onTimer
 
     def addTimer(self, name, timer, handler):
-        _logger.error('addTimer')
+        _logger.debug('addTimer: %s', name)
         if self._cev is not None:
             return
 
@@ -321,6 +321,7 @@ class NonBlocking(object):
         self._timers[name] = timerEv
 
     def delTimer(self, name):
+        _logger.debug('delTimer: %s', name)
         self._timers[name].delTimer()
         del self._timers[name]
 
