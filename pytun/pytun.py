@@ -58,6 +58,18 @@ Connect Side: -C from/via/to/{tcp,udp,tun},...
 Accept Side: -A addr0:port0,addr1:port1,...'''
 
 if __name__ == '__main__':
+    try:
+        import epoll
+        epoll.Epoll.init()
+        _logger.debug("epoll")
+    except:
+        try:
+            import kqueue
+            kqueue.Kqueue.init()
+            _logger.debug("kqueue")
+        except:
+            raise Exception("Failed to init")
+
     ServerList = []
     AcceptMode = False
     ConnectMode = False
@@ -81,8 +93,6 @@ if __name__ == '__main__':
     if not AcceptMode and not ConnectMode:
         print(_helpText)
         sys.exit(0)
-
-    epoll.Epoll.init()
 
     for addr, port, type_, arg in ServerList:
         if AcceptMode:

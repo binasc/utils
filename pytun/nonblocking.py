@@ -111,6 +111,7 @@ class NonBlocking(object):
                 break
 
         self._tosend_bytes -= sent_bytes
+        _logger.debug("fd: %d sent %d bytes, remain %d bytes", self._fd.fileno(), sent_bytes, self._tosend_bytes)
         if sent_bytes > 0 and self._onSent:
             try:
                 self._onSent(self, sent_bytes, self._tosend_bytes)
