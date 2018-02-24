@@ -20,7 +20,7 @@ class Kqueue:
         Event.processEvents = staticmethod(lambda t: Kqueue._kqueue.process_events(t))
 
     @staticmethod
-    def debugPrint():
+    def debug_print():
         print("read: " + str(Kqueue._kqueue._registered_read))
         print("write: " + str(Kqueue._kqueue._registered_write))
         print("changelist: " + str(Kqueue._kqueue._change_list))
@@ -40,16 +40,16 @@ class Kqueue:
             if fd in self._registered_write:
                 _logger.error("Duplicate write registration of fd: %d", fd)
                 raise Exception("Duplicate write registration")
-            filter = select.KQ_FILTER_WRITE
+            filter_ = select.KQ_FILTER_WRITE
             self._registered_write[fd] = event
         else:
             if fd in self._registered_read:
                 _logger.error("Duplicate read registration of fd: %d", fd)
                 raise Exception("Duplicate read registration")
             self._registered_read[fd] = event
-            filter = select.KQ_FILTER_READ
+            filter_ = select.KQ_FILTER_READ
 
-        self._change_list.append(select.kevent(fd, filter=filter, flags=select.KQ_EV_ADD))
+        self._change_list.append(select.kevent(fd, filter=filter_, flags=select.KQ_EV_ADD))
         event.set_active(True)
 
     def unregister(self, event):
@@ -61,16 +61,16 @@ class Kqueue:
             if fd not in self._registered_write:
                 _logger.warn("No write event registered for fd: %d", fd)
                 return
-            filter = select.KQ_FILTER_WRITE
+            filter_ = select.KQ_FILTER_WRITE
             del self._registered_write[fd]
         else:
             if fd not in self._registered_read:
                 _logger.warn("No read event registered for fd: %d", fd)
                 return
-            filter = select.KQ_FILTER_READ
+            filter_ = select.KQ_FILTER_READ
             del self._registered_read[fd]
 
-        self._change_list.append(select.kevent(fd, filter=filter, flags=select.KQ_EV_DELETE))
+        self._change_list.append(select.kevent(fd, filter=filter_, flags=select.KQ_EV_DELETE))
         event.set_active(False)
 
     def isset(self, event):
@@ -87,21 +87,21 @@ class Kqueue:
         _logger.debug("kqueue returned events: %s", str(ready_list))
         for kevent in ready_list:
             fd = kevent.ident
-            filter = kevent.filter
+            filter_ = kevent.filter
             handled = False
-            if filter == select.KQ_FILTER_WRITE:
+            if filter_ == select.KQ_FILTER_WRITE:
                 if fd in self._registered_write:
                     ready.append(self._registered_write[fd])
                     handled = True
-            if filter == select.KQ_FILTER_READ:
+            if filter_ == select.KQ_FILTER_READ:
                 if fd in self._registered_read:
                     ready.append(self._registered_read[fd])
                     handled = True
             if not handled:
-                if filter == select.KQ_FILTER_READ and kevent.flags == select.KQ_EV_ERROR:
-                    _logger.debug("Unhandled fd: %d with event filter: %d", fd, filter)
+                if filter_ == select.KQ_FILTER_READ and kevent.flags == select.KQ_EV_ERROR:
+                    _logger.debug("Unhandled fd: %d with event filter: %d", fd, filter_)
                 else:
-                    _logger.warn("Unhandled fd: %d with event filter: %d", fd, filter)
+                    _logger.warn("Unhandled fd: %d with event filter: %d", fd, filter_)
         self._change_list = []
 
         for event in ready:

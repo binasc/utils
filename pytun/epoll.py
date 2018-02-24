@@ -4,6 +4,7 @@ from event import Event
 import loglevel
 _logger = loglevel.getLogger('epoll')
 
+
 class Epoll:
 
     _epoll = None
@@ -18,7 +19,7 @@ class Epoll:
         self._fd = select.epoll()
 
     @staticmethod
-    def debugPrint():
+    def debug_print():
         print("read: " + str(Epoll._epoll._registered_read))
         print("write: " + str(Epoll._epoll._registered_write))
         print("mask: " + str(Epoll._epoll._fd_mask))
@@ -47,9 +48,11 @@ class Epoll:
         self._fd_mask[fd] = mask
 
         if event.isWrite():
+            assert(fd not in self._registered_write)
             self._registered_write[fd] = event
         else:
-            self._registered_read[fd] = event;
+            assert(fd not in self._registered_read)
+            self._registered_read[fd] = event
 
     def unregister(self, event):
         if event.isWrite():
@@ -99,6 +102,10 @@ class Epoll:
                 if fd in self._registered_read:
                     self._ready.append(self._registered_read[fd])
                     handled = True
+            if not handled and fd not in self._fd_mask:
+                _logger.warn("wild fd: %d closed with type: %s", fd, str(ev_type))
+                fd.close()
+                handled = True
             if not handled:
                 _logger.warning("fd: %d, type: %s" % (fd, str(ev_type)))
                 if fd in self._registered_write:
@@ -112,4 +119,3 @@ class Epoll:
                     event.getHandler()(event)
             except Exception as ex:
                 _logger.warning('event handler exception: %s' % str(ex))
-

@@ -82,7 +82,8 @@ class NonBlocking(object):
         _logger.debug('beginReceiving')
         if not self._connected or self._cev is not None:
             return
-        Event.addEvent(self._rev)
+        if not Event.isEventSet(self._rev):
+            Event.addEvent(self._rev)
 
     def stopReceiving(self):
         _logger.debug('stopReceiving')
@@ -144,7 +145,7 @@ class NonBlocking(object):
         self._tosend_bytes += len(data)
         self.refreshTimeout()
 
-        if self._connected:
+        if self._connected and not Event.isEventSet(self._wev):
             Event.addEvent(self._wev)
 
     def pendingBytes(self):
@@ -189,7 +190,7 @@ class NonBlocking(object):
                 self.refreshTimeout()
             except self._errorType as msg:
                 if msg.errno != errno.EAGAIN and msg.errno != errno.EINPROGRESS:
-                    _logger.error('fd: %d, recv: %s',
+                    _logger.error('fd: %d, recv occurs error: %s',
                                   self._fd.fileno(), os.strerror(msg.errno))
                     self._error = True
                     self._closeAgain()

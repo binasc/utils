@@ -1,7 +1,7 @@
 import sys
 import logging
 
-formatter = logging.Formatter(fmt='%(asctime)-15s %(name)s %(levelname)s %(message)s')
+formatter = logging.Formatter(fmt='%(asctime)-15s %(levelname)-5s %(name)s %(message)s')
 handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(formatter)
 
