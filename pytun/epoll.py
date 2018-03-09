@@ -1,4 +1,5 @@
 import select
+import time
 from event import Event
 
 import loglevel
@@ -17,6 +18,8 @@ class Epoll:
         self._ready = []
 
         self._fd = select.epoll()
+
+        self._lastTime = time.time()
 
     @staticmethod
     def debug_print():
@@ -119,3 +122,8 @@ class Epoll:
                     event.getHandler()(event)
             except Exception as ex:
                 _logger.warning('event handler exception: %s' % str(ex))
+
+        currentTime = time.time()
+        if currentTime - self._lastTime > 5.0:
+            _logger.info("current number of opened fd: %d" % len(self._fd_mask))
+            self._lastTime = currentTime
