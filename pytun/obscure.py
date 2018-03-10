@@ -171,8 +171,8 @@ def genHttpEncode(request):
             remain[0] = 0
 
         while len(data) > 0:
-            width = random.randint(100, 200)
-            height = random.randint(100, 200)
+            width = random.randint(500, 1000)
+            height = random.randint(500, 1000)
             remain[0] = sizeOfRawBMP(width, height)
             http = http_request if request else http_response
             tosend += http + str(BM_HEADER_SIZE + remain[0]) + '\r\n\r\n' + genBMPHeader(width, height)

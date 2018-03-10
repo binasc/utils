@@ -7,7 +7,7 @@ import logging
 import loglevel
 _logger = loglevel.getLogger('udptun', logging.INFO)
 
-BUFFERSIZE = 512 * 1024
+BUFFERSIZE = 4 * (1024 ** 2)
 
 addr2Stream = {}
 

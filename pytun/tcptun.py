@@ -6,7 +6,7 @@ import logging
 import loglevel
 _logger = loglevel.getLogger('tcptun', logging.INFO)
 
-BUFFERSIZE = 512 * 1024
+BUFFERSIZE = 2 * (1024 ** 2)
 
 def genOnClientAccepted(via, to):
 
