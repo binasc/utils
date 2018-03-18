@@ -29,9 +29,6 @@ def genOnReceived(via, to):
 
             tunnel = Stream()
             common.initializeTunnel(tunnel)
-            tunnel.connect(via[0], via[1])
-            tunnel.send(header)
-
             addr2Stream[addrPort] = tunnel
 
             def tunnelSent(self, sent, remain):
@@ -49,6 +46,9 @@ def genOnReceived(via, to):
             tunnel.setOnSent(tunnelSent)
             tunnel.setOnReceived(tunnelReceived)
             tunnel.setOnClosed(tunnelClosed)
+
+            tunnel.connect(via[0], via[1])
+            tunnel.send(header)
 
         tunnel.send(data)
 
