@@ -9,6 +9,7 @@ import loglevel
 _logger = loglevel.getLogger('nonblocking')
 _logger.setLevel(loglevel.gLevel)
 
+
 class NonBlocking(object):
 
     def __init__(self, fd):
@@ -56,6 +57,9 @@ class NonBlocking(object):
 
     def __eq__(self, another):
         return self._fd.fileno() == another._fd.fileno()
+
+    def __str__(self):
+        return "fd: %d" % (self._fd.fileno())
 
     def setNonBlocking(self):
         raise Exception('not implemented')
@@ -211,8 +215,8 @@ class NonBlocking(object):
                 _logger.error('decode: %s', str(ex))
                 if self._onDecodeError is not None:
                     try:
-                        self._onDecodeError(self, recv)
                         self._decodeError = True
+                        self._onDecodeError(self, recv)
                     except Exception as ex:
                         _logger.error("_onDecodeError: %s", str(ex))
                         self._error = True
@@ -231,7 +235,7 @@ class NonBlocking(object):
         _logger.debug('_onClose')
         _logger.debug('fd: %d closed', self._fd.fileno())
 
-        for name in self._timers:
+        for name in list(self._timers.keys()):
             self.delTimer(name)
 
         # in case of timeout happened
