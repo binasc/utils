@@ -6,58 +6,69 @@ from Crypto import Random
 
 random.seed()
 
+import loglevel
+_logger = loglevel.getLogger('obscure')
+_logger.setLevel(loglevel.gLevel)
+
+
 def packData(data):
     remain = len(data)
     sent = 0
     out = ''
     while remain > 0:
-        tosend = min(remain, pow(2, 15))
-        out += struct.pack('!H', tosend - 1) + data[sent:sent+tosend]
+        tosend = min(remain, 2 ** 16 - 2)
+        out += struct.pack('!H', tosend) + data[sent:sent+tosend]
         remain -= tosend
         sent += tosend
-        
     return out
 
 def unpackData(data):
-    if len(data) < 2:
+    length = len(data)
+    if length < 2:
         return ('', 0)
-    size = struct.unpack('!H', data[:2])[0] + 1
-    if len(data) < 2 + size:
+    size = struct.unpack('!H', data[:2])[0]
+    if length < 2 + size:
         return ('', 0)
     return (data[2:2+size], 2 + size)
 
 def randomPadding(data):
-    length = len(data)
-    head = 0
-    tail = 0
-    if length < 128:
-        head = random.randint(10, 128)
-        tail = random.randint(10, 128)
-    elif length < 512:
+    lenDat = len(data)
+    lenPad = 0
+    if lenDat < 128:
+        lenPad = random.randint(5, 64)
+    elif lenDat < 512:
         if random.random() < 0.9:
-            head = random.randint(10, 64)
-            tail = random.randint(10, 64)
+            lenPad = random.randint(5, 32)
     else:
         if random.random() < 0.2:
-            head = random.randint(10, 32)
-            tail = random.randint(10, 32)
+            lenPad = random.randint(5, 16)
 
-    header = ''
-    if head > 0:
-        header = struct.pack('!HH', random.randrange(0, 101, 2), head) + chr(random.randint(0, 255)) * head
-    tailor = ''
-    if tail > 0:
-        tailor = struct.pack('!HH', random.randrange(0, 101, 2), tail) + chr(random.randint(0, 255)) * tail
+    pad = ''
+    if lenPad > 0:
+        pad = struct.pack('!HH', random.randrange(0, 100, 2), lenPad - 1) + chr(random.randint(0, 255)) * lenPad
 
-    return header + struct.pack('!HH', random.randrange(1, 101, 2), length) + data + tailor
+    _logger.debug("encode len(pad): %d, body: %d", lenPad, lenDat)
+
+    if random.random() < 0.5:
+        return pad + struct.pack('!HH', random.randrange(1, 100, 2), lenDat - 1) + data
+    else:
+        return struct.pack('!HH', random.randrange(1, 100, 2), lenDat - 1) + data + pad
 
 def unpadRandom(data):
-    head = 0
+    real = ''
+    lenDat = len(data)
+    if lenDat < 4:
+        return ('', 0)
     flag, length = struct.unpack('!HH', data[:4])
-    if flag % 2 == 0:
-        head = 4 + length
-        _, length = struct.unpack('!HH', data[head: head + 4])
-    return (data[head + 4: head + 4 + length], len(data))
+    length += 1
+    if flag % 2 == 1:
+        if lenDat >= 4 + length:
+            real = data[4 : 4 + length]
+            _logger.debug("body: %d", length)
+    if lenDat < 4 + length:
+        return ('', 0)
+    else:
+        return (real, 4 + length)
 
 BS = AES.block_size
 pad = lambda s: s + (BS - len(s) % BS) * chr(BS - len(s) % BS) 

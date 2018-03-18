@@ -138,8 +138,12 @@ class NonBlocking(object):
         else:
             _logger.debug('sending %d bytes', len(data))
 
-        for encoder in self._encoders:
-            data = encoder(data)
+        try:
+            for encoder in self._encoders:
+                data = encoder(data)
+        except Exception as ex:
+            _logger.error('failed to encode %d bytes: %s', len(data), str(ex))
+            raise ex
 
         self._tosend.append((data, addr))
         self._tosend_bytes += len(data)
@@ -183,7 +187,7 @@ class NonBlocking(object):
         _logger.debug('_onReceive')
         while True:
             try:
-                recv, addr = self._recv(65536)
+                recv, addr = self._recv(2 ** 16 - 512)
                 if len(recv) == 0:
                     self.close()
                     return

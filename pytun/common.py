@@ -15,7 +15,7 @@ def initializeTunnel(tunnel, isRequest=True):
     except Exception as ex:
         _logger.warning('setCongAlgorithm failed: %s' % str(ex))
     tunnel.appendSendHandler(obscure.packData)
-    #tunnel.appendSendHandler(obscure.randomPadding)
+    tunnel.appendSendHandler(obscure.randomPadding)
     #tunnel.appendSendHandler(obscure.genAesEncrypt())
     tunnel.appendSendHandler(obscure.genXorEncrypt())
     #tunnel.appendSendHandler(obscure.base64encode)
@@ -24,7 +24,7 @@ def initializeTunnel(tunnel, isRequest=True):
     #tunnel.appendReceiveHandler(obscure.base64deocde)
     tunnel.appendReceiveHandler(obscure.genXorDecrypt())
     #tunnel.appendReceiveHandler(obscure.genAesDecrypt())
-    #tunnel.appendReceiveHandler(obscure.unpadRandom)
+    tunnel.appendReceiveHandler(obscure.unpadRandom)
     tunnel.appendReceiveHandler(obscure.unpackData)
 
 def wrapContent(json, data=''):
