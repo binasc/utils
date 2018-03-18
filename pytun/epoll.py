@@ -4,6 +4,7 @@ from event import Event
 
 import loglevel
 _logger = loglevel.getLogger('epoll')
+_logger.setLevel(loglevel.gLevel)
 
 
 class Epoll:
@@ -106,7 +107,7 @@ class Epoll:
                     self._ready.append(self._registered_read[fd])
                     handled = True
             if not handled and fd not in self._fd_mask:
-                _logger.warn("wild fd: %d closed with type: %s", fd, str(ev_type))
+                _logger.warning("wild fd: %d closed with type: %s", fd, str(ev_type))
                 fd.close()
                 handled = True
             if not handled:
@@ -121,9 +122,9 @@ class Epoll:
                 if self.isset(event):
                     event.getHandler()(event)
             except Exception as ex:
-                _logger.warning('event handler exception: %s' % str(ex))
+                _logger.warning('event handler exception: %s', str(ex))
 
         currentTime = time.time()
-        if currentTime - self._lastTime > 5.0:
-            _logger.info("current number of opened fd: %d" % len(self._fd_mask))
+        if currentTime - self._lastTime > 60.0:
+            _logger.info("current number of opened fd: %d", len(self._fd_mask))
             self._lastTime = currentTime

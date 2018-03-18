@@ -62,7 +62,8 @@ class Event:
                 return timeout - current
             else:
                 return 0
-        return -1
+        #return -1
+        return 5
 
     @staticmethod
     def expireTimers():
@@ -76,8 +77,8 @@ class Event:
                 if event.__timer_set:
                     try:
                         event.__handler(event)
-                    except:
-                        pass
+                    except Exception as ex:
+                        _logger.warning("timer handler exception: %s", str(ex))
 
     addEvent = None
     delEvent = None

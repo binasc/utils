@@ -24,17 +24,17 @@ def genOnClientAccepted(via, to):
     def onAccepted(front, from_):
         _logger.debug('onAccepted')
 
-        _logger.info("from %s:%d connected" % from_)
-
         tunnel = Stream()
         common.initializeTunnel(tunnel)
 
+        _logger.info("from %s:%d (%s to %s) connected" % (from_[0], from_[1], str(front), str(tunnel)))
+
         def tunnelSent(self, sent, remain):
-            _logger.info("%s:%d --> %s:%d %d bytes" % (
+            _logger.debug("%s:%d --> %s:%d %d bytes" % (
                          from_[0], from_[1], to[0], int(to[1]), sent))
 
         def tunnelReceived(self, data, _):
-            _logger.info("%s:%d <-- %s:%d %d bytes" % (
+            _logger.debug("%s:%d <-- %s:%d %d bytes" % (
                          from_[0], from_[1], to[0], int(to[1]), len(data)))
             front.send(data)
 
@@ -65,11 +65,12 @@ def genOnClientAccepted(via, to):
         front.setOnClosed(frontendClosed)
         front.beginReceiving()
 
-    return onAccepted 
+    return onAccepted
 
 def onServerSideConnected(tunnel, addr, port):
-    _logger.debug('connect to: %s:%d', addr, port)
     back = Stream()
+
+    _logger.info('connect to: %s:%d (%s to %s)', addr, port, str(tunnel), str(back))
 
     def tunnelSent(self, sent, remain):
         if remain <= BUFFERSIZE:
@@ -107,8 +108,9 @@ def onServerSideConnected(tunnel, addr, port):
     back.connect(addr, port)
 
 def onServerSideReceivedUnknownConnection(tunnel, addr, port, recv):
-    _logger.debug('connect to: %s:%d', addr, port)
     back = Stream()
+
+    _logger.info('try to connect to: %s:%d (%s to %s)', addr, port, str(tunnel), str(back))
 
     def tunnelSent(self, sent, remain):
         if remain <= BUFFERSIZE:

@@ -25,18 +25,18 @@ def genOnReceived(via, to):
         if addrPort in addr2Stream:
             tunnel = addr2Stream[addrPort]
         else:
-            _logger.info('new Dgram from: %s:%d' % from_)
-
             tunnel = Stream()
             common.initializeTunnel(tunnel)
             addr2Stream[addrPort] = tunnel
 
+            _logger.info('new Dgram from: %s:%d (%s to %s)' % (from_[0], from_[1], str(front), str(tunnel)))
+
             def tunnelSent(self, sent, remain):
-                _logger.info("%s:%d --> %s:%d %d bytes" % (
+                _logger.debug("%s:%d --> %s:%d %d bytes" % (
                              from_[0], from_[1], to[0], int(to[1]), sent))
 
             def tunnelReceived(self, data, _):
-                _logger.info("%s:%d <-- %s:%d %d bytes" % (
+                _logger.debug("%s:%d <-- %s:%d %d bytes" % (
                              from_[0], from_[1], to[0], int(to[1]), len(data)))
                 front.send(data, from_)
 
@@ -59,6 +59,8 @@ def acceptSideReceiver(tunnel, header):
     port = header['port']
 
     back = Dgram()
+
+    _logger.info('new Dgram from: %s:%d (%s to %s)', addr, port, str(tunnel), str(back))
 
     def udpTunnelSent(self, sent, remain):
         if remain <= BUFFERSIZE:
