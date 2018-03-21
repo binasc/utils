@@ -10,7 +10,7 @@ _logger = loglevel.getLogger('tuntun')
 
 BUFFERSIZE =  8 * (1024 ** 2)
 
-MAX_CONNECTION = 100
+MAX_CONNECTION = 64
 
 to2tun = {}
 
@@ -40,10 +40,8 @@ def genOnReceived(via, to):
 
         if tunnel is None:
             tunnel = Stream()
-            tunnel.connect(viaAddr, viaPort)
-            common.initializeTunnel(tunnel)
             tunDevice.src2Stream[sid] = tunnel
-            _logger.debug('new TunCon from: %s:%d', srcAddr, srcPort)
+            _logger.debug('new TunCon from: %s:%d (%s)', srcAddr, srcPort, str(tunnel))
 
             tunnel.send(generateHeader(src))
 
@@ -77,6 +75,9 @@ def genOnReceived(via, to):
             tunnel.setOnReceived(tunnelReceived)
             tunnel.setOnClosed(tunnelClosed)
 
+            tunnel.connect(viaAddr, viaPort)
+            common.initializeTunnel(tunnel)
+
         #if proto == 'tcp':
         #    data = data * 2
         tunnel.send(data)
@@ -104,8 +105,9 @@ def acceptSideReceiver(tunnel, header):
                 _logger.warning('unknown dst %s:%d', dstAddr, dstPort)
                 return
 
-        before = tunnel.send(None)
-        after = tunnel.send(data)
+        before = tunnel.pendingBytes()
+        tunnel.send(data)
+        after = tunnel.pendingBytes()
         self.pending += (after - before)
         if self.pending > BUFFERSIZE:
             self.stopReceiving()
@@ -141,7 +143,7 @@ def acceptSideReceiver(tunnel, header):
         tunDevice.send(data)
 
     def tunDeviceTunnelClosed(self):
-        left = self.send(None)
+        left = self.pendingBytes()
         tunDevice.pending -= left
         if tunDevice.pending <= BUFFERSIZE:
             tunDevice.beginReceiving()
