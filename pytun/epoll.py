@@ -3,8 +3,8 @@ import time
 from event import Event
 
 import loglevel
-_logger = loglevel.getLogger('epoll')
-_logger.setLevel(loglevel.gLevel)
+_logger = loglevel.get_logger('epoll')
+_logger.setLevel(loglevel.DEFAULT_LEVEL)
 
 
 class Epoll:
@@ -20,30 +20,24 @@ class Epoll:
 
         self._fd = select.epoll()
 
-        self._lastTime = time.time()
-
-    @staticmethod
-    def debug_print():
-        print("read: " + str(Epoll._epoll._registered_read))
-        print("write: " + str(Epoll._epoll._registered_write))
-        print("mask: " + str(Epoll._epoll._fd_mask))
+        self._last_time = time.time()
 
     @staticmethod
     def init():
         Epoll._epoll = Epoll()
         # only one instance is allowed
         Event.addEvent = staticmethod(lambda ev: Epoll._epoll.register(ev))
-        Event.delEvent = staticmethod(lambda ev: Epoll._epoll.unregister(ev))
-        Event.isEventSet = staticmethod(lambda ev: Epoll._epoll.isset(ev))
+        Event.delEvent = staticmethod(lambda ev: Epoll._epoll.deregister(ev))
+        Event.isEventSet = staticmethod(lambda ev: Epoll._epoll.is_set(ev))
         Event.processEvents = staticmethod(lambda t: Epoll._epoll.process_events(t))
 
     def register(self, event):
-        if event.isWrite():
+        if event.is_write():
             mask = select.EPOLLOUT
         else:
             mask = select.EPOLLIN
 
-        fd = event.getFd()
+        fd = event.get_fd()
         if fd not in self._fd_mask:
             self._fd.register(fd, mask)
         else:
@@ -51,26 +45,26 @@ class Epoll:
             self._fd.modify(fd, mask)
         self._fd_mask[fd] = mask
 
-        if event.isWrite():
+        if event.is_write():
             assert(fd not in self._registered_write)
             self._registered_write[fd] = event
         else:
             assert(fd not in self._registered_read)
             self._registered_read[fd] = event
 
-    def unregister(self, event):
-        if event.isWrite():
+    def deregister(self, event):
+        if event.is_write():
             mask = select.EPOLLOUT
         else:
             mask = select.EPOLLIN
 
-        fd = event.getFd()
+        fd = event.get_fd()
         if fd not in self._fd_mask or self._fd_mask[fd] & mask == 0:
             return
         else:
             mask = self._fd_mask[fd] & ~mask
 
-        if event.isWrite():
+        if event.is_write():
             del self._registered_write[fd]
         else:
             del self._registered_read[fd]
@@ -84,10 +78,10 @@ class Epoll:
             self._fd.unregister(fd)
             del self._fd_mask[fd]
 
-    def isset(self, event):
-        fd = event.getFd()
+    def is_set(self, event):
+        fd = event.get_fd()
         if fd in self._fd_mask:
-            if event.isWrite():
+            if event.is_write():
                 return fd in self._registered_write
             else:
                 return fd in self._registered_read
@@ -119,12 +113,12 @@ class Epoll:
 
         for event in self._ready:
             try:
-                if self.isset(event):
-                    event.getHandler()(event)
+                if self.is_set(event):
+                    event.get_handler()(event)
             except Exception as ex:
                 _logger.warning('event handler exception: %s', str(ex))
 
-        currentTime = time.time()
-        if currentTime - self._lastTime > 60.0:
+        current_time = time.time()
+        if current_time - self._last_time > 60.0:
             _logger.info("current number of opened fd: %d", len(self._fd_mask))
-            self._lastTime = currentTime
+            self._last_time = current_time

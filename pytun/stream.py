@@ -1,13 +1,13 @@
 import os
 import socket
 import errno
-from event import Event
 import traceback
+from event import Event
+from nonblocking import NonBlocking
 
 import loglevel
-_logger = loglevel.getLogger('stream')
+_logger = loglevel.get_logger('stream')
 
-from nonblocking import NonBlocking
 
 class Stream(NonBlocking):
 
@@ -21,47 +21,47 @@ class Stream(NonBlocking):
 
         self._onConnected = None
 
-    def setCongAlgorithm(self, algo):
-        TCP_CONGESTION = getattr(socket, 'TCP_CONGESTION', 13)
-        self._fd.setsockopt(socket.IPPROTO_TCP, TCP_CONGESTION, algo)
+    def set_cong_algorithm(self, algorithm):
+        tcp_congestion = getattr(socket, 'TCP_CONGESTION', 13)
+        self._fd.setsockopt(socket.IPPROTO_TCP, tcp_congestion, algorithm)
 
-    def setTCPNoDelay(self):
+    def set_tcp_no_delay(self):
         self._fd.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
-    def setOnConnected(self, onConnected):
-        self._onConnected = onConnected
+    def set_on_connected(self, on_connected):
+        self._onConnected = on_connected
 
-    def _checkConnected(self):
-        _logger.debug('_checkConnected')
+    def _check_connected(self):
+        _logger.debug('_check_connected')
         err = self._fd.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
         if err != 0:
             self._error = True
-            self._closeAgain()
+            self._close_again()
             return
 
         self._connected = True
-        self._wev.setHandler(lambda ev: self._onSend())
-        if len(self._tosend) == 0:
+        self._wev.set_handler(lambda ev: self._on_send())
+        if len(self._to_send) == 0:
             Event.delEvent(self._wev)
 
         if self._onConnected is not None:
             try:
                 self._onConnected(self)
             except Exception as e:
-                _logger.error('_onConnected: %s', e)
+                _logger.error('_on_connected: %s', e)
                 _logger.exception(traceback.format_exc())
                 self._error = True
-                self._closeAgain()
+                self._close_again()
                 return
         else:
-            self.beginReceiving()
+            self.begin_receiving()
 
     def connect(self, addr, port):
         _logger.debug('connect')
         if self._cev is not None:
             return
 
-        self._wev.setHandler(lambda ev: self._checkConnected())
+        self._wev.set_handler(lambda ev: self._check_connected())
         try:
             _logger.debug('connecting to %s:%d', addr, port)
             self._fd.connect((addr, port))
@@ -70,20 +70,20 @@ class Stream(NonBlocking):
                 _logger.error('fd: %d, connect: %s',
                               self._fd.fileno(), os.strerror(msg.errno))
                 self._error = True
-                self._closeAgain()
+                self._close_again()
             else:
                 Event.addEvent(self._wev)
         else:
-            timer = Event.addTimer(0)
-            timer.setHandler(lambda ev: self._wev.getHandler()(self._wev))
+            timer = Event.add_timer(0)
+            timer.set_handler(lambda ev: self._wev.get_handler()(self._wev))
 
-    def setNonBlocking(self):
+    def set_non_blocking(self):
         self._fd.setblocking(False)
 
     def bind(self, addr, port):
         self._fd.bind((addr, port))
 
-    def setBufferSize(self, bsize):
+    def set_buffer_size(self, bsize):
         self._fd.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, bsize)
         self._fd.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, bsize)
 
@@ -99,4 +99,3 @@ class Stream(NonBlocking):
 
     def _close(self):
         self._fd.close()
-

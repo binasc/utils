@@ -5,10 +5,11 @@ formatter = logging.Formatter(fmt='%(asctime)-15s %(levelname)-5s %(name)s %(mes
 handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(formatter)
 
-gLevel = logging.INFO
+DEFAULT_LEVEL = logging.INFO
 logging.basicConfig(fmt=formatter)
 
-def getLogger(name, level=gLevel):
+
+def get_logger(name, level=DEFAULT_LEVEL):
     logger = logging.getLogger(name)
     logger.level = level
     if not logger.handlers:

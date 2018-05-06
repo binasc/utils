@@ -6,7 +6,8 @@ from stream import Stream
 import traceback
 
 import loglevel
-_logger = loglevel.getLogger('acceptor')
+_logger = loglevel.get_logger('acceptor')
+
 
 class Acceptor:
 
@@ -16,9 +17,9 @@ class Acceptor:
         self._fd.setblocking(False)
 
         self._rev = Event()
-        self._rev.setWrite(False)
-        self._rev.setFd(self._fd.fileno())
-        self._rev.setHandler(lambda ev: self._onAccept())
+        self._rev.set_write(False)
+        self._rev.set_fd(self._fd.fileno())
+        self._rev.set_handler(lambda ev: self._on_accept())
 
         self._onAccepted = None
         self._onClosed = None
@@ -33,8 +34,8 @@ class Acceptor:
         self._fd.listen(backlog)
         Event.addEvent(self._rev)
 
-    def _onAccept(self):
-        _logger.debug('_onAccept')
+    def _on_accept(self):
+        _logger.debug('_on_accept')
         while True:
             try:
                 sock, addr = self._fd.accept()
@@ -47,7 +48,7 @@ class Acceptor:
                     _logger.error('fd: %d, accept: %s',
                                   self._fd.fileno(), os.strerror(msg.errno))
                     self._fd.close()
-                    if self._onClosed != None:
+                    if self._onClosed is not None:
                         try:
                             self._onClosed(self)
                         except Exception as ex:
@@ -55,18 +56,17 @@ class Acceptor:
                             _logger.exception(traceback.format_exc())
                 return
             else:
-                newstream = Stream(sock)
-                newstream._connected = True
+                new_stream = Stream(sock)
+                new_stream._connected = True
                 try:
-                    self._onAccepted(newstream, addr)
+                    self._onAccepted(new_stream, addr)
                 except Exception as e:
                     _logger.error('_onAccepted: %s', e)
                     _logger.exception(traceback.format_exc())
-                    newstream.close()
+                    new_stream.close()
 
-    def setOnAccepted(self, onAccepted):
-        self._onAccepted = onAccepted
+    def set_on_accepted(self, on_accepted):
+        self._onAccepted = on_accepted
 
-    def setOnClosed(self, onClosed):
-        self._onClosed = onClosed
-
+    def set_on_closed(self, on_closed):
+        self._onClosed = on_closed

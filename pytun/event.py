@@ -2,37 +2,38 @@ import time
 import heapq
 
 import loglevel
-_logger = loglevel.getLogger('event')
-_logger.setLevel(loglevel.gLevel)
+_logger = loglevel.get_logger('event')
+_logger.setLevel(loglevel.DEFAULT_LEVEL)
+
 
 class Event:
 
-    __timers = []
+    _timers = []
 
     def __init__(self):
-        self.__fd = 0
-        self.__write = False
-        self.__handler = None
-        self.__timer_set = False
+        self._fd = 0
+        self._write = False
+        self._handler = None
+        self._timer_set = False
         self._active = False
 
-    def setFd(self, fd):
-        self.__fd = fd
+    def set_fd(self, fd):
+        self._fd = fd
 
-    def getFd(self):
-        return self.__fd
+    def get_fd(self):
+        return self._fd
 
-    def isWrite(self):
-        return self.__write
+    def is_write(self):
+        return self._write
 
-    def setWrite(self, write):
-        self.__write = write
+    def set_write(self, write):
+        self._write = write
 
-    def getHandler(self):
-        return self.__handler
+    def get_handler(self):
+        return self._handler
 
-    def setHandler(self, handler):
-        self.__handler = handler
+    def set_handler(self, handler):
+        self._handler = handler
 
     def set_active(self, active):
         self._active = active
@@ -41,42 +42,42 @@ class Event:
         return self._active
 
     @staticmethod
-    def addTimer(mseconds):
+    def add_timer(milliseconds):
         event = Event()
-        event.__timer_set = True
-        timeout = time.time() + mseconds / 1000.0
-        heapq.heappush(Event.__timers, (timeout, event))
+        event._timer_set = True
+        timeout = time.time() + milliseconds / 1000.0
+        heapq.heappush(Event._timers, (timeout, event))
         return event
 
-    def delTimer(self):
-        self.__timer_set = False
+    def del_timer(self):
+        self._timer_set = False
 
     @staticmethod
-    def findTimer():
+    def find_timer():
         current = time.time()
-        while len(Event.__timers) > 0:
-            timeout, event = Event.__timers[0]
-            if not event.__timer_set:
-                heapq.heappop(Event.__timers)
+        while len(Event._timers) > 0:
+            timeout, event = Event._timers[0]
+            if not event._timer_set:
+                heapq.heappop(Event._timers)
             elif timeout > current:
                 return timeout - current
             else:
                 return 0
-        #return -1
+        # return -1
         return 5
 
     @staticmethod
-    def expireTimers():
+    def expire_timers():
         current = time.time()
-        while len(Event.__timers) > 0:
-            timeout, event = Event.__timers[0]
+        while len(Event._timers) > 0:
+            timeout, event = Event._timers[0]
             if timeout > current:
                 break
             else:
-                heapq.heappop(Event.__timers)
-                if event.__timer_set:
+                heapq.heappop(Event._timers)
+                if event._timer_set:
                     try:
-                        event.__handler(event)
+                        event._handler(event)
                     except Exception as ex:
                         _logger.warning("timer handler exception: %s", str(ex))
 
@@ -86,16 +87,14 @@ class Event:
     processEvents = None
 
     @staticmethod
-    def processEventsAndTimers():
-        timeout = Event.findTimer()
+    def process_events_and_timers():
+        timeout = Event.find_timer()
         _logger.debug('loop: %f s', timeout)
         Event.processEvents(timeout)
 
-        Event.expireTimers()
+        Event.expire_timers()
 
     @staticmethod
-    def processLoop():
+    def process_loop():
         while True:
-            Event.processEventsAndTimers()
-
-
+            Event.process_events_and_timers()

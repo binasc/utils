@@ -1,9 +1,9 @@
 import socket
+from nonblocking import NonBlocking
 
 import loglevel
-_logger = loglevel.getLogger('dgram')
+_logger = loglevel.get_logger('dgram')
 
-from nonblocking import NonBlocking
 
 class Dgram(NonBlocking):
 
@@ -14,13 +14,13 @@ class Dgram(NonBlocking):
         NonBlocking.__init__(self, sock)
         self._connected = True
 
-    def setNonBlocking(self):
+    def set_non_blocking(self):
         self._fd.setblocking(False)
 
     def bind(self, addr, port):
         self._fd.bind((addr, port))
 
-    def setBufferSize(self, bsize):
+    def set_buffer_size(self, bsize):
         self._fd.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, bsize)
         self._fd.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, bsize)
 
@@ -38,4 +38,3 @@ class Dgram(NonBlocking):
 
     def _close(self):
         self._fd.close()
-

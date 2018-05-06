@@ -2,7 +2,7 @@ import select
 from event import Event
 
 import loglevel
-_logger = loglevel.getLogger('kqueue')
+_logger = loglevel.get_logger('kqueue')
 
 
 class Kqueue:
@@ -15,15 +15,9 @@ class Kqueue:
         Kqueue._kqueue = Kqueue()
         # only one instance is allowed
         Event.addEvent = staticmethod(lambda ev: Kqueue._kqueue.register(ev))
-        Event.delEvent = staticmethod(lambda ev: Kqueue._kqueue.unregister(ev))
-        Event.isEventSet = staticmethod(lambda ev: Kqueue._kqueue.isset(ev))
+        Event.delEvent = staticmethod(lambda ev: Kqueue._kqueue.deregister(ev))
+        Event.isEventSet = staticmethod(lambda ev: Kqueue._kqueue.is_set(ev))
         Event.processEvents = staticmethod(lambda t: Kqueue._kqueue.process_events(t))
-
-    @staticmethod
-    def debug_print():
-        print("read: " + str(Kqueue._kqueue._registered_read))
-        print("write: " + str(Kqueue._kqueue._registered_write))
-        print("changelist: " + str(Kqueue._kqueue._change_list))
 
     def __init__(self):
         self._fd = select.kqueue()
@@ -35,8 +29,8 @@ class Kqueue:
         if event.is_active():
             return
 
-        fd = event.getFd()
-        if event.isWrite():
+        fd = event.get_fd()
+        if event.is_write():
             if fd in self._registered_write:
                 _logger.error("Duplicate write registration of fd: %d", fd)
                 raise Exception("Duplicate write registration")
@@ -52,12 +46,12 @@ class Kqueue:
         self._change_list.append(select.kevent(fd, filter=filter_, flags=select.KQ_EV_ADD))
         event.set_active(True)
 
-    def unregister(self, event):
+    def deregister(self, event):
         if not event.is_active():
             return
 
-        fd = event.getFd()
-        if event.isWrite():
+        fd = event.get_fd()
+        if event.is_write():
             if fd not in self._registered_write:
                 _logger.warn("No write event registered for fd: %d", fd)
                 return
@@ -73,9 +67,9 @@ class Kqueue:
         self._change_list.append(select.kevent(fd, filter=filter_, flags=select.KQ_EV_DELETE))
         event.set_active(False)
 
-    def isset(self, event):
-        fd = event.getFd()
-        if event.isWrite():
+    def is_set(self, event):
+        fd = event.get_fd()
+        if event.is_write():
             return fd in self._registered_write
         else:
             return fd in self._registered_read
@@ -85,9 +79,9 @@ class Kqueue:
         ready_list = self._fd.control(self._change_list, Kqueue.KQUEUE_MAX_EVENTS, None if timeout < 0 else timeout)
         _logger.debug("kqueue returned %d events", len(ready_list))
         _logger.debug("kqueue returned events: %s", str(ready_list))
-        for kevent in ready_list:
-            fd = kevent.ident
-            filter_ = kevent.filter
+        for k_event in ready_list:
+            fd = k_event.ident
+            filter_ = k_event.filter
             handled = False
             if filter_ == select.KQ_FILTER_WRITE:
                 if fd in self._registered_write:
@@ -98,7 +92,7 @@ class Kqueue:
                     ready.append(self._registered_read[fd])
                     handled = True
             if not handled:
-                if filter_ == select.KQ_FILTER_READ and kevent.flags == select.KQ_EV_ERROR:
+                if filter_ == select.KQ_FILTER_READ and k_event.flags == select.KQ_EV_ERROR:
                     _logger.debug("Unhandled fd: %d with event filter: %d", fd, filter_)
                 else:
                     _logger.warn("Unhandled fd: %d with event filter: %d", fd, filter_)
@@ -106,8 +100,8 @@ class Kqueue:
 
         for event in ready:
             try:
-                if self.isset(event):
-                    event.getHandler()(event)
+                if self.is_set(event):
+                    event.get_handler()(event)
             except Exception as ex:
                 _logger.warning('Event handler exception: %s' % str(ex))
                 import traceback

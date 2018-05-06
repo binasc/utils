@@ -1,14 +1,9 @@
 #!/usr/bin/env python
 import sys
-import epoll
 import event
 import getopt
 import threading
 import subprocess
-
-import loglevel
-_logger = loglevel.getLogger('main')
-
 from acceptor import Acceptor
 from dgram import Dgram
 from tundevice import TunDevice
@@ -19,22 +14,26 @@ import tuntun
 
 import server
 
-def processAcceptSideArgument(arg):
-    serverlist = []
-    hostlist = arg.split(',')
-    for host in hostlist:
+import loglevel
+_logger = loglevel.get_logger('main')
+
+
+def process_accept_side_argument(argument):
+    server_list = []
+    host_list = argument.split(',')
+    for host in host_list:
         if len(host) == 0:
             continue
         addr, port = host.split(':')
-        port = int(port)
-        serverlist.append((addr, port, None, None))
-    return serverlist
+        server_list.append((addr, int(port), None, None))
+    return server_list
 
-def processConnectSideArgument(arg):
+
+def process_connect_side_argument(argument):
     protocols = set(['tcp', 'udp', 'tun'])
-    serverlist = []
-    hostslist = arg.split(',')
-    for hosts in hostslist:
+    server_list = []
+    hosts_list = argument.split(',')
+    for hosts in hosts_list:
         if len(hosts) == 0:
             continue
         from_, via, to, type_ = hosts.split('/')
@@ -46,16 +45,19 @@ def processConnectSideArgument(arg):
         if type_ not in protocols:
             raise Exception('Unknown protocol')
         port = int(port)
-        serverlist.append((addr, port, type_, (via, to)))
-    return serverlist
+        server_list.append((addr, port, type_, (via, to)))
+    return server_list
 
-def acceptorOnClosed(self):
+
+def acceptor_on_closed(_self):
     _logger.exception('Acceptor closed!')
     sys.exit(-1)
+
 
 _helpText = '''Usage:
 Connect Side: -C from/via/to/{tcp,udp,tun},...
 Accept Side: -A addr0:port0,addr1:port1,...'''
+
 
 if __name__ == '__main__':
     try:
@@ -70,62 +72,62 @@ if __name__ == '__main__':
         except:
             raise Exception("Failed to init")
 
-    ServerList = []
-    AcceptMode = False
-    ConnectMode = False
+    server_list = []
+    accept_mode = False
+    connect_mode = False
 
     optlist, args = getopt.getopt(sys.argv[1:], 'A:C:h')
     for cmd, arg in optlist:
         if cmd == '-A':
-            AcceptMode = True
-            if ConnectMode == True:
+            accept_mode = True
+            if connect_mode is True:
                 raise Exception('Already in Connect Mode')
-            ServerList = processAcceptSideArgument(arg)
+            server_list = process_accept_side_argument(arg)
         if cmd == '-C':
-            ConnectMode = True
-            if AcceptMode == True:
+            connect_mode = True
+            if accept_mode is True:
                 raise Exception('Already in Accept Mode')
-            ServerList = processConnectSideArgument(arg)
+            server_list = process_connect_side_argument(arg)
         if cmd == '-h':
             print(_helpText)
             sys.exit(0)
 
-    if not AcceptMode and not ConnectMode:
+    if not accept_mode and not connect_mode:
         print(_helpText)
         sys.exit(0)
 
-    for addr, port, type_, arg in ServerList:
-        if AcceptMode:
+    for addr, port, type_, arg in server_list:
+        if accept_mode:
             acceptor = Acceptor()
             acceptor.bind(addr, port)
             acceptor.listen()
-            acceptor.setOnAccepted(server.serverSideOnAccepted)
-            acceptor.setOnClosed(acceptorOnClosed)
+            acceptor.set_on_accepted(server.server_side_on_accepted)
+            acceptor.set_on_closed(acceptor_on_closed)
         else:
             via, to = arg
             if type_ == 'tcp':
                 acceptor = Acceptor()
                 acceptor.bind(addr, port)
                 acceptor.listen()
-                acceptor.setOnAccepted(tcptun.genOnClientAccepted(via, to))
-                acceptor.setOnClosed(acceptorOnClosed)
+                acceptor.set_on_accepted(tcptun.gen_on_client_accepted(via, to))
+                acceptor.set_on_closed(acceptor_on_closed)
             elif type_ == 'udp':
                 receiver = Dgram()
                 receiver.bind(addr, port)
-                receiver.setOnReceived(udptun.genOnReceived(via, to))
-                receiver.setOnClosed(acceptorOnClosed)
-                receiver.beginReceiving()
+                receiver.set_on_received(udptun.gen_on_received(via, to))
+                receiver.set_on_closed(acceptor_on_closed)
+                receiver.begin_receiving()
             elif type_ == 'tun':
                 # port as cidr prefix
                 receiver = TunDevice('tun', addr, port)
-                receiver.setOnReceived(tuntun.genOnReceived(via, to))
-                receiver.setOnClosed(acceptorOnClosed)
-                receiver.beginReceiving()
-                def pingThread():
+                receiver.set_on_received(tuntun.gen_on_received(via, to))
+                receiver.set_on_closed(acceptor_on_closed)
+                receiver.begin_receiving()
+
+                def ping_thread():
                     subprocess.Popen(['ping', '-c', '1', to[0]]).wait()
 
-                t = threading.Thread(target=pingThread)
+                t = threading.Thread(target=ping_thread)
                 t.start()
 
-    event.Event.processLoop()
-
+    event.Event.process_loop()

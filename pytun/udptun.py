@@ -5,56 +5,59 @@ from dgram import Dgram
 
 import logging
 import loglevel
-_logger = loglevel.getLogger('udptun', logging.INFO)
+_logger = loglevel.get_logger('udptun', logging.INFO)
 
-BUFFERSIZE = 4 * (1024 ** 2)
+
+BUFFER_SIZE = 4 * (1024 ** 2)
 
 addr2Stream = {}
 
-def genOnReceived(via, to):
 
-    header = common.wrapContent(json.dumps({
+def gen_on_received(via, to):
+
+    header = common.wrap_content(json.dumps({
         'type': 'udp',
         'addr': to[0],
         'port': to[1]
     }))
 
-    def onReceived(front, data, from_):
-        addrPort = '%s:%d' % from_
+    def on_received(front, data, from_):
+        addr_port = '%s:%d' % from_
 
-        if addrPort in addr2Stream:
-            tunnel = addr2Stream[addrPort]
+        if addr_port in addr2Stream:
+            tunnel = addr2Stream[addr_port]
         else:
             tunnel = Stream()
-            common.initializeTunnel(tunnel)
-            addr2Stream[addrPort] = tunnel
+            common.initialize_tunnel(tunnel)
+            addr2Stream[addr_port] = tunnel
 
             _logger.info('new Dgram from: %s:%d (%s to %s)' % (from_[0], from_[1], str(front), str(tunnel)))
 
-            def tunnelSent(self, sent, remain):
+            def tunnel_sent(_self, sent, _remain):
                 _logger.debug("%s:%d --> %s:%d %d bytes" % (
                              from_[0], from_[1], to[0], int(to[1]), sent))
 
-            def tunnelReceived(self, data, _):
+            def tunnel_received(_self, data_, _addr):
                 _logger.debug("%s:%d <-- %s:%d %d bytes" % (
-                             from_[0], from_[1], to[0], int(to[1]), len(data)))
-                front.send(data, from_)
+                             from_[0], from_[1], to[0], int(to[1]), len(data_)))
+                front.send(data_, from_)
 
-            def tunnelClosed(self):
-                del addr2Stream[addrPort]
+            def tunnel_closed(_self):
+                del addr2Stream[addr_port]
 
-            tunnel.setOnSent(tunnelSent)
-            tunnel.setOnReceived(tunnelReceived)
-            tunnel.setOnClosed(tunnelClosed)
+            tunnel.set_on_sent(tunnel_sent)
+            tunnel.set_on_received(tunnel_received)
+            tunnel.set_on_closed(tunnel_closed)
 
             tunnel.connect(via[0], via[1])
             tunnel.send(header)
 
         tunnel.send(data)
 
-    return onReceived
+    return on_received
 
-def acceptSideReceiver(tunnel, header):
+
+def accept_side_receiver(tunnel, header):
     addr = header['addr']
     port = header['port']
 
@@ -62,31 +65,30 @@ def acceptSideReceiver(tunnel, header):
 
     _logger.info('new Dgram from: %s:%d (%s to %s)', addr, port, str(tunnel), str(back))
 
-    def udpTunnelSent(self, sent, remain):
-        if remain <= BUFFERSIZE:
-            back.beginReceiving()
+    def udp_tunnel_sent(_self, _sent, remain):
+        if remain <= BUFFER_SIZE:
+            back.begin_receiving()
 
-    def udpTunnelReceived(self, data, _):
+    def udp_tunnel_received(_self, data, _addr):
         back.send(data, (addr, port))
 
-    def udpTunnelClosed(self):
+    def udp_tunnel_closed(_self):
         back.close()
 
-    def udpBackendReceived(self, data, _):
+    def udp_backend_received(self, data, _addr):
         tunnel.send(data)
-        pending = tunnel.pendingBytes()
-        if pending > BUFFERSIZE:
-            self.stopReceiving()
+        pending = tunnel.pending_bytes()
+        if pending > BUFFER_SIZE:
+            self.stop_receiving()
 
-    def udpBackendClosed(self):
+    def udp_backend_closed(_self):
         tunnel.close()
 
-    tunnel.setOnSent(udpTunnelSent)
-    tunnel.setOnReceived(udpTunnelReceived)
-    tunnel.setOnClosed(udpTunnelClosed)
-    back.setOnReceived(udpBackendReceived)
-    back.setOnClosed(udpBackendClosed)
-    back.beginReceiving()
+    tunnel.set_on_sent(udp_tunnel_sent)
+    tunnel.set_on_received(udp_tunnel_received)
+    tunnel.set_on_closed(udp_tunnel_closed)
+    back.set_on_received(udp_backend_received)
+    back.set_on_closed(udp_backend_closed)
+    back.begin_receiving()
     # 10 min
-    back.setTimeout(10 * 60 * 1000)
-
+    back.set_timeout(10 * 60 * 1000)

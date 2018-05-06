@@ -1,18 +1,14 @@
 import socket
-import errno
 import os
 import fcntl
 import subprocess
 import struct
-from event import Event
-from collections import deque
 from functools import partial
-import traceback
+from nonblocking import NonBlocking
 
 import loglevel
-_logger = loglevel.getLogger('tundevice')
+_logger = loglevel.get_logger('tundevice')
 
-from nonblocking import NonBlocking
 
 class FileWrapper(object):
     def __init__(self, fd):
@@ -21,51 +17,35 @@ class FileWrapper(object):
     def fileno(self):
         return self._fd
 
+
 class TunDevice(NonBlocking):
 
     TUNSETIFF = 0x400454ca
-    IFF_TUN   = 0x0001
-    IFF_TAP   = 0x0002
+    IFF_TUN = 0x0001
+    IFF_TAP = 0x0002
     IFF_NO_PI = 0x1000
 
+    PROTO_TCP = 6
+    PROTO_UDP = 17
+
     @staticmethod
-    def _ipv4Decoder(data):
+    def _ipv4_decoder(data):
         if len(data) < 20:
-            return ('', 0)
+            return '', 0
 
         _, _, length = struct.unpack('!BBH', data[:4])
         if len(data) < length:
-            return ('', 0)
+            return '', 0
 
-        return (data[:length], length)
+        return data[:length], length
 
     @staticmethod
-    def _parseIpv4(packet):
-    
-        PROTO_TCP = 6
-        PROTO_UDP = 17
-
-        ver_ihl, _, total_length, _, _, protocol, _, sip, dip = struct.unpack('!BBHIBBH4s4s', packet[:20])
-        ihl = ver_ihl & 0x0f
-        ver = (ver_ihl >> 4) & 0x0f
-        sip = socket.inet_ntop(socket.AF_INET, sip)
-        dip = socket.inet_ntop(socket.AF_INET, dip)
-
-        proto = 'other'
-        sport, dport = 0, 0
-        if protocol == PROTO_TCP or protocol == PROTO_UDP:
-            proto = 'tcp' if protocol == PROTO_TCP else 'udp'
-            offset = ihl * 4
-            sport, dport = struct.unpack('!HH', packet[offset:offset+4])
-
-        return total_length, proto, (sip, sport), (dip, dport)
-
     def __init__(self, prefix, ip, netmask):
         fd = os.open('/dev/net/tun', os.O_RDWR)
 
-        TUNMODE = self.IFF_TUN | self.IFF_NO_PI
-        ctlstr = struct.pack('16sH', prefix + '%d', TUNMODE)
-        ifs = fcntl.ioctl(fd, self.TUNSETIFF, ctlstr)
+        mode = self.IFF_TUN | self.IFF_NO_PI
+        ctrl_str = struct.pack('16sH', prefix + '%d', mode)
+        ifs = fcntl.ioctl(fd, self.TUNSETIFF, ctrl_str)
         self._ifname = ifs[:16].strip("\x00")
 
         if isinstance(netmask, int):
@@ -78,21 +58,37 @@ class TunDevice(NonBlocking):
 
         NonBlocking.__init__(self, FileWrapper(fd))
         self._connected = True
-        self._decoders = [(self._ipv4Decoder, [''])]
+        self._decoders = [(self._ipv4_decoder, [''])]
 
         self._errorType = OSError
 
-    def setNonBlocking(self):
+    def set_non_blocking(self):
         flag = fcntl.fcntl(self._fd.fileno(), fcntl.F_GETFL)
         fcntl.fcntl(self._fd.fileno(), fcntl.F_SETFL, flag | os.O_NONBLOCK)
 
-    def setOnReceived(self, onReceived):
+    def set_on_received(self, on_received):
 
-        def onReceivedWrapper(onReceived, self, out, addr):
-            _, proto, src, dst = self._parseIpv4(out)
-            onReceived(self, out, proto, src, dst)
+        def parse_ipv4(packet):
+            ver_ihl, _, total_length, _, _, protocol, _, sip, dip = struct.unpack('!BBHIBBH4s4s', packet[:20])
+            ihl = ver_ihl & 0x0f
+            _ = (ver_ihl >> 4) & 0x0f  # version
+            sip = socket.inet_ntop(socket.AF_INET, sip)
+            dip = socket.inet_ntop(socket.AF_INET, dip)
 
-        self._onReceived = partial(onReceivedWrapper, onReceived)
+            proto = 'other'
+            sport, dport = 0, 0
+            if protocol == TunDevice.PROTO_TCP or protocol == TunDevice.PROTO_UDP:
+                proto = 'tcp' if protocol == TunDevice.PROTO_TCP else 'udp'
+                offset = ihl * 4
+                sport, dport = struct.unpack('!HH', packet[offset:offset+4])
+
+            return total_length, proto, (sip, sport), (dip, dport)
+
+        def on_received_wrapper(_on_received, _self, out, _):
+            _, proto, src, dst = parse_ipv4(out)
+            _on_received(_self, out, proto, src, dst)
+
+        self._onReceived = partial(on_received_wrapper, on_received)
 
     def _send(self, data, _):
         sent = os.write(self._fd.fileno(), data)
@@ -106,4 +102,3 @@ class TunDevice(NonBlocking):
 
     def _close(self):
         os.close(self._fd.fileno())
-
