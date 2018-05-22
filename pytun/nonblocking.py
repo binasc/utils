@@ -27,7 +27,7 @@ class NonBlocking(object):
         self._connected = False
 
         self._onSent = None
-        self._onReceived = None
+        self._on_received = None
         self._onClosed = None
 
         self._cev = None
@@ -70,7 +70,7 @@ class NonBlocking(object):
         self._onSent = on_sent
 
     def set_on_received(self, on_received):
-        self._onReceived = on_received
+        self._on_received = on_received
 
     def set_on_closed(self, on_closed):
         self._onClosed = on_closed
@@ -111,14 +111,14 @@ class NonBlocking(object):
             except self._errorType as msg:
                 self._to_send.appendleft((data, addr))
                 if msg.errno != errno.EAGAIN and msg.errno != errno.EINPROGRESS:
-                    _logger.error('fd: %d, send: %s',
-                                  self._fd.fileno(), os.strerror(msg.errno))
+                    _logger.error('%s, send: %s',
+                                  str(self), os.strerror(msg.errno))
                     self._error = True
                     self._close_again()
                 break
 
         self._to_send_bytes -= sent_bytes
-        _logger.debug("fd: %d sent %d bytes, remain %d bytes", self._fd.fileno(), sent_bytes, self._to_send_bytes)
+        _logger.debug("%s, sent %d bytes, remain %d bytes", str(self), sent_bytes, self._to_send_bytes)
         if sent_bytes > 0 and self._onSent:
             try:
                 self._onSent(self, sent_bytes, self._to_send_bytes)
@@ -140,9 +140,9 @@ class NonBlocking(object):
             return
 
         if addr is not None:
-            _logger.debug('sending %d bytes to %s:%d', len(data), addr[0], addr[1])
+            _logger.debug('%s, sending %d bytes to %s:%d', str(self), len(data), addr)
         else:
-            _logger.debug('sending %d bytes', len(data))
+            _logger.debug('%s, sending %d bytes', str(self), len(data))
 
         try:
             for encoder in self._encoders:
@@ -175,9 +175,10 @@ class NonBlocking(object):
                 break
             if depth == len(self._decoders) - 1:
                 try:
-                    self._onReceived(self, out, addr)
+                    if out is not None and len(out) > 0:
+                        self._on_received(self, out, addr)
                 except Exception as e:
-                    _logger.error('_onReceived: %s', e)
+                    _logger.error('_decode: %s', e)
                     _logger.exception(traceback.format_exc())
                     self._error = True
                     self._close_again()
@@ -197,11 +198,12 @@ class NonBlocking(object):
                 if len(recv) == 0:
                     self.close()
                     return
+                _logger.debug("%s, received %d bytes", str(self), len(recv))
                 self.refresh_timeout()
             except self._errorType as msg:
                 if msg.errno != errno.EAGAIN and msg.errno != errno.EINPROGRESS:
-                    _logger.error('fd: %d, recv occurs error: %s',
-                                  self._fd.fileno(), os.strerror(msg.errno))
+                    _logger.error('%s, recv occurs error: %s',
+                                  str(self), os.strerror(msg.errno))
                     self._error = True
                     self._close_again()
                 return
@@ -211,6 +213,7 @@ class NonBlocking(object):
                     self._onDecodeError(self, recv)
                 else:
                     self._decode(0, recv, addr)
+                self.refresh_timeout()
             except self._RecvCBException:
                 pass
             except Exception as ex:
@@ -235,7 +238,7 @@ class NonBlocking(object):
 
     def _on_close(self):
         _logger.debug('_on_close')
-        _logger.debug('fd: %d closed', self._fd.fileno())
+        _logger.debug('%s, closed', str(self))
 
         for name in list(self._timers.keys()):
             self.del_timer(name)
@@ -266,7 +269,7 @@ class NonBlocking(object):
         _logger.debug('close')
         if self._cev is not None:
             return
-        _logger.debug('fd: %d closing', self._fd.fileno())
+        _logger.debug('%s, closing', str(self))
 
         self.remove_timeout()
 

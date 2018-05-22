@@ -33,13 +33,22 @@ class TunDevice(NonBlocking):
         if len(data) < 20:
             return '', 0
 
-        _, _, length = struct.unpack('!BBH', data[:4])
+        ver_ihl, _, length = struct.unpack('!BBH', data[:4])
         if len(data) < length:
             return '', 0
 
+        version = (ver_ihl >> 4) & 0x0f
+        if version == 6:
+            if len(data) < 40:
+                return '', 0
+            length, = struct.unpack('!H', data[4: 6])
+            if len(data) < 40 + length:
+                return '', 0
+            else:
+                return '', 40 + length
+
         return data[:length], length
 
-    @staticmethod
     def __init__(self, prefix, ip, netmask):
         fd = os.open('/dev/net/tun', os.O_RDWR)
 
@@ -84,20 +93,20 @@ class TunDevice(NonBlocking):
 
             return total_length, proto, (sip, sport), (dip, dport)
 
-        def on_received_wrapper(_on_received, _self, out, _):
+        def on_received_wrapper(_on_received, self_, out, _):
             _, proto, src, dst = parse_ipv4(out)
-            _on_received(_self, out, proto, src, dst)
+            _on_received(self_, out, proto, src, dst)
 
-        self._onReceived = partial(on_received_wrapper, on_received)
+        self._on_received = partial(on_received_wrapper, on_received)
 
     def _send(self, data, _):
         sent = os.write(self._fd.fileno(), data)
-        _logger.debug('fd: %d sent %d bytes', self._fd.fileno(), sent)
+        _logger.debug('%s, write %d bytes', str(self), sent)
         return sent
 
     def _recv(self, size):
         recv = os.read(self._fd.fileno(), size)
-        _logger.debug('fd: %d recv %d bytes', self._fd.fileno(), len(recv))
+        _logger.debug('%s, read %d bytes', str(self), len(recv))
         return recv, None
 
     def _close(self):

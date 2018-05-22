@@ -12,7 +12,7 @@ import tcptun
 import udptun
 import tuntun
 
-import server
+import tunnel
 
 import loglevel
 _logger = loglevel.get_logger('main')
@@ -30,7 +30,7 @@ def process_accept_side_argument(argument):
 
 
 def process_connect_side_argument(argument):
-    protocols = set(['tcp', 'udp', 'tun'])
+    protocols = {'tcp', 'udp', 'tun'}
     server_list = []
     hosts_list = argument.split(',')
     for hosts in hosts_list:
@@ -101,7 +101,7 @@ if __name__ == '__main__':
             acceptor = Acceptor()
             acceptor.bind(addr, port)
             acceptor.listen()
-            acceptor.set_on_accepted(server.server_side_on_accepted)
+            acceptor.set_on_accepted(tunnel.server_side_on_accepted)
             acceptor.set_on_closed(acceptor_on_closed)
         else:
             via, to = arg
@@ -109,25 +109,19 @@ if __name__ == '__main__':
                 acceptor = Acceptor()
                 acceptor.bind(addr, port)
                 acceptor.listen()
-                acceptor.set_on_accepted(tcptun.gen_on_client_accepted(via, to))
+                acceptor.set_on_accepted(tcptun.gen_on_client_side_accepted(via, to))
                 acceptor.set_on_closed(acceptor_on_closed)
             elif type_ == 'udp':
                 receiver = Dgram()
                 receiver.bind(addr, port)
-                receiver.set_on_received(udptun.gen_on_received(via, to))
+                receiver.set_on_received(udptun.gen_on_client_side_received(via, to))
                 receiver.set_on_closed(acceptor_on_closed)
                 receiver.begin_receiving()
             elif type_ == 'tun':
                 # port as cidr prefix
                 receiver = TunDevice('tun', addr, port)
-                receiver.set_on_received(tuntun.gen_on_received(via, to))
+                receiver.set_on_received(tuntun.gen_on_client_side_received(via, to))
                 receiver.set_on_closed(acceptor_on_closed)
                 receiver.begin_receiving()
-
-                def ping_thread():
-                    subprocess.Popen(['ping', '-c', '1', to[0]]).wait()
-
-                t = threading.Thread(target=ping_thread)
-                t.start()
 
     event.Event.process_loop()

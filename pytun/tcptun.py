@@ -1,145 +1,74 @@
 import json
-import common
 from stream import Stream
+from tunnel import Tunnel
 
 import logging
 import loglevel
 _logger = loglevel.get_logger('tcptun', logging.INFO)
 
 
-BUFFER_SIZE = 2 * (1024 ** 2)
+def gen_on_client_side_accepted(via, to):
 
-
-def gen_on_client_accepted(via, to):
-
-    connect_info = common.wrap_content(json.dumps({
-        'p': 'tcp',
-        'type': 'connect',
+    initial_data = json.dumps({
         'addr': to[0],
         'port': to[1]
-    }))
+    })
 
-    hb = common.wrap_content(json.dumps({'type': 'hb'}))
+    def on_accepted(frontend, from_):
+        tunnel = Tunnel(connect_to=via)
 
-    data_header = json.dumps({'type': 'data'})
+        def on_payload(_, data):
+            frontend.send(data)
 
-    def on_accepted(front, from_):
-        _logger.debug('on_accepted')
+        def on_tunnel_closed(_):
+            frontend.close()
 
-        tunnel = Stream()
-        common.initialize_tunnel(tunnel)
+        def on_frontend_received(_, data, _addr):
+            tunnel.send_payload(data)
 
-        _logger.info("from %s:%d (%s to %s) connected" % (from_[0], from_[1], str(front), str(tunnel)))
-
-        def tunnel_sent(_self, sent, _remain):
-            _logger.debug("%s:%d --> %s:%d %d bytes" % (
-                         from_[0], from_[1], to[0], int(to[1]), sent))
-
-        def tunnel_received(_self, data, _addr):
-            _logger.debug("%s:%d <-- %s:%d %d bytes" % (
-                         from_[0], from_[1], to[0], int(to[1]), len(data)))
-            front.send(data)
-
-        def tunnel_send_heartbeat(self):
-            self.send(hb)
-            self.add_timer('hb', 15 * 1000, tunnel_send_heartbeat)
-
-        def tunnel_closed(_self):
-            _logger.info("%s:%d <-> %s:%d closed" % (
-                         from_[0], from_[1], to[0], int(to[1])))
-            front.close()
-
-        def frontend_received(_self, data, _):
-            tunnel.send(common.wrap_content(data_header, data))
-
-        def frontend_closed(_self):
+        def on_frontend_closed(_):
             tunnel.close()
 
-        tunnel.set_on_sent(tunnel_sent)
-        tunnel.set_on_received(tunnel_received)
-        tunnel.set_on_closed(tunnel_closed)
-        tunnel.add_timer('hb', 15 * 1000, tunnel_send_heartbeat)
+        tunnel.set_on_payload(on_payload)
+        tunnel.set_on_closed(on_tunnel_closed)
+        tunnel.initialize()
+        tunnel.send_tcp_initial_data(initial_data)
+        frontend.set_on_received(on_frontend_received)
+        frontend.set_on_closed(on_frontend_closed)
+        frontend.begin_receiving()
 
-        tunnel.connect(via[0], via[1])
-        tunnel.send(connect_info)
-
-        front.set_on_received(frontend_received)
-        front.set_on_closed(frontend_closed)
-        front.begin_receiving()
+        _logger.info("from %s:%d (%s to %s) connected" % (from_[0], from_[1], str(frontend), str(tunnel)))
 
     return on_accepted
 
 
-def on_server_side_connected(tunnel, addr, port):
-    back = Stream()
+def on_server_side_initialized(tunnel, initial_data):
+    json_data = json.loads(initial_data)
+    address, port = json_data['addr'], json_data['port']
 
-    _logger.info('connect to: %s:%d (%s to %s)', addr, port, str(tunnel), str(back))
+    backend = Stream()
 
-    def tunnel_sent(_self, _sent, remain):
-        if remain <= BUFFER_SIZE:
-            back.begin_receiving()
+    def on_payload(_, data):
+        backend.send(data)
 
-    def tunnel_received(_self, data, _addr):
-        json_str, data = common.unwrap_content(data)
-        header = json.loads(json_str)
+    def on_tunnel_closed(_):
+        backend.close()
 
-        type_ = header['type']
-        if type_ == 'data':
-            back.send(data)
-        elif type_ == 'hb':
-            _logger.debug('Received heartbeat packet')
-        else:
-            _logger.warning('Unknown packet type: %s', type_)
+    def on_backend_received(_, data, _addr):
+        tunnel.send_payload(data)
 
-    def tunnel_closed(_self):
-        back.close()
-
-    def backend_received(self, data, _):
-        tunnel.send(data)
-        pending = tunnel.pending_bytes()
-        if pending > BUFFER_SIZE:
-            self.stop_receiving()
-
-    def backend_closed(_self):
+    def on_backend_closed(_):
         tunnel.close()
 
-    tunnel.set_on_sent(tunnel_sent)
-    tunnel.set_on_received(tunnel_received)
-    tunnel.set_on_closed(tunnel_closed)
-    back.set_on_received(backend_received)
-    back.set_on_closed(backend_closed)
-    back.connect(addr, port)
+    tunnel.set_on_payload(on_payload)
+    tunnel.set_on_closed(on_tunnel_closed)
+    tunnel.set_on_buffer_high(lambda _: backend.stop_receiving())
+    tunnel.set_on_buffer_low(lambda _: backend.begin_receiving())
+    backend.set_on_received(on_backend_received)
+    backend.set_on_closed(on_backend_closed)
+    backend.connect(address, port)
+
+    _logger.info('connect to: %s:%d (%s to %s)', address, port, str(tunnel), str(backend))
 
 
-def on_server_side_received_unknown_connection(tunnel, addr, port, recv):
-    back = Stream()
-
-    _logger.info('try to connect to: %s:%d (%s to %s)', addr, port, str(tunnel), str(back))
-
-    def tunnel_sent(_self, _sent, remain):
-        if remain <= BUFFER_SIZE:
-            back.begin_receiving()
-
-    def tunnel_received(_self, data, _addr):
-        back.send(data)
-
-    def tunnel_closed(_self):
-        back.close()
-
-    def backend_received(self, data, _addr):
-        tunnel.send(data)
-        pending = tunnel.pending_bytes()
-        if pending > BUFFER_SIZE:
-            self.stop_receiving()
-
-    def backend_closed(_self):
-        tunnel.close()
-
-    tunnel.set_on_sent(tunnel_sent)
-    tunnel.set_on_received(tunnel_received)
-    tunnel.set_on_closed(tunnel_closed)
-    back.set_on_received(backend_received)
-    back.set_on_closed(backend_closed)
-    if recv is not None:
-        back.send(recv)
-    back.connect(addr, port)
+Tunnel.set_tcp_initial_handler(on_server_side_initialized)
