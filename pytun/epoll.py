@@ -1,5 +1,6 @@
 import select
 import time
+import os
 from event import Event
 
 import loglevel
@@ -117,6 +118,11 @@ class Epoll:
                     event.get_handler()(event)
             except Exception as ex:
                 _logger.warning('event handler exception: %s', str(ex))
+                try:
+                    fd = event.get_fd()
+                    os.close(fd)
+                finally:
+                    pass
 
         current_time = time.time()
         if current_time - self._last_time > 60.0:

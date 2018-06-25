@@ -1,10 +1,10 @@
-import socket
 import os
 import fcntl
 import subprocess
 import struct
 from functools import partial
 from nonblocking import NonBlocking
+from packet import Packet
 
 import loglevel
 _logger = loglevel.get_logger('tundevice')
@@ -77,25 +77,8 @@ class TunDevice(NonBlocking):
 
     def set_on_received(self, on_received):
 
-        def parse_ipv4(packet):
-            ver_ihl, _, total_length, _, _, protocol, _, sip, dip = struct.unpack('!BBHIBBH4s4s', packet[:20])
-            ihl = ver_ihl & 0x0f
-            _ = (ver_ihl >> 4) & 0x0f  # version
-            sip = socket.inet_ntop(socket.AF_INET, sip)
-            dip = socket.inet_ntop(socket.AF_INET, dip)
-
-            proto = 'other'
-            sport, dport = 0, 0
-            if protocol == TunDevice.PROTO_TCP or protocol == TunDevice.PROTO_UDP:
-                proto = 'tcp' if protocol == TunDevice.PROTO_TCP else 'udp'
-                offset = ihl * 4
-                sport, dport = struct.unpack('!HH', packet[offset:offset+4])
-
-            return total_length, proto, (sip, sport), (dip, dport)
-
-        def on_received_wrapper(_on_received, self_, out, _):
-            _, proto, src, dst = parse_ipv4(out)
-            _on_received(self_, out, proto, src, dst)
+        def on_received_wrapper(_on_received, self_, data, _):
+            _on_received(self_, data, Packet(data))
 
         self._on_received = partial(on_received_wrapper, on_received)
 

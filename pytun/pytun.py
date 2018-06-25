@@ -120,7 +120,7 @@ if __name__ == '__main__':
             elif type_ == 'tun':
                 # port as cidr prefix
                 receiver = TunDevice('tun', addr, port)
-                receiver.set_on_received(tuntun.gen_on_client_side_received(via, to))
+                receiver.set_on_received(tuntun.gen_on_client_side_received((addr, port), via, to))
                 receiver.set_on_closed(acceptor_on_closed)
                 receiver.begin_receiving()
 
