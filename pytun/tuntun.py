@@ -224,7 +224,7 @@ def on_server_side_initialized(tunnel, initial_data):
         tun_device.stop_receiving()
 
     def on_tunnel_low(_):
-        tun_device.start_receiving()
+        tun_device.begin_receiving()
 
     tunnel.set_on_payload(on_payload)
     tunnel.set_on_closed(on_closed)
