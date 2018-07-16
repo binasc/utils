@@ -1,4 +1,3 @@
-import os
 import socket
 import errno
 from event import Event
@@ -111,8 +110,8 @@ class NonBlocking(object):
             except self._errorType as msg:
                 self._to_send.appendleft((data, addr))
                 if msg.errno != errno.EAGAIN and msg.errno != errno.EINPROGRESS:
-                    _logger.error('%s, send: %s',
-                                  str(self), os.strerror(msg.errno))
+                    _logger.error('%s, send(%d): %s',
+                                  str(self), msg.errno, msg.strerror)
                     self._error = True
                     self._close_again()
                 break
@@ -140,7 +139,7 @@ class NonBlocking(object):
             return
 
         if addr is not None:
-            _logger.debug('%s, sending %d bytes to %s:%d', str(self), len(data), addr)
+            _logger.debug('%s, sending %d bytes to %s:%d', str(self), len(data), *addr)
         else:
             _logger.debug('%s, sending %d bytes', str(self), len(data))
 
@@ -202,8 +201,8 @@ class NonBlocking(object):
                 self.refresh_timeout()
             except self._errorType as msg:
                 if msg.errno != errno.EAGAIN and msg.errno != errno.EINPROGRESS:
-                    _logger.error('%s, recv occurs error: %s',
-                                  str(self), os.strerror(msg.errno))
+                    _logger.error('%s, recv occurs error(%d): %s',
+                                  str(self), msg.errno, msg.strerror)
                     self._error = True
                     self._close_again()
                 return
