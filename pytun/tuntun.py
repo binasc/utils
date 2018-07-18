@@ -53,7 +53,11 @@ def is_domain_blocked(domain):
 
 def gen_on_client_side_received(from_, via, to):
 
-    from_addr, = struct.unpack('!I', socket.inet_pton(socket.AF_INET, from_[0]))
+    def ip_string_to_long(ip):
+        return struct.unpack('!I', socket.inet_pton(socket.AF_INET, ip))[0]
+
+
+    from_addr = ip_string_to_long(from_[0])
 
     def change_src(packet):
         packet.set_raw_source_ip(packet.get_raw_source_ip() + 1)
@@ -79,11 +83,14 @@ def gen_on_client_side_received(from_, via, to):
                     for rr in result.rr:
                         if rr.rtype == QTYPE.A:
                             addr, = struct.unpack('!I', struct.pack('!BBBB', *rr.rdata.data))
-                            _logger.info('normal address: %s has been recorded',
-                                         socket.inet_ntop(socket.AF_INET, struct.pack('!I', addr)))
+                            _logger.debug('normal address: %s has been recorded',
+                                          socket.inet_ntop(socket.AF_INET, struct.pack('!I', addr)))
                             normal_address.add(addr)
                 except object:
                     _logger.warning("Failed to parse DNS packet")
+                if packet.get_raw_source_ip() == ip_string_to_long('119.29.29.29'):
+                    packet.set_raw_source_ip(ip_string_to_long('8.8.8.8'))
+
             tun_device.send(packet.get_packet())
             return
 
@@ -104,8 +111,9 @@ def gen_on_client_side_received(from_, via, to):
                     if through_tunnel:
                         _logger.info("query: %s through tunnel", name)
                     else:
+                        packet.set_raw_destination_ip(ip_string_to_long('119.29.29.29'))
                         _logger.info("query: %s directly", name)
-                    dns_query = True
+                dns_query = True
             except object:
                 _logger.warning("Failed to parse DNS packet")
 
@@ -141,7 +149,7 @@ def gen_on_client_side_received(from_, via, to):
                             if rr_.rtype == QTYPE.A:
                                 addr_, = struct.unpack('!I', struct.pack('!BBBB', *rr_.rdata.data))
                                 blocked_address.add(addr_)
-                                _logger.info('blocked address: %s has been recorded',
+                                _logger.debug('blocked address: %s has been recorded',
                                               socket.inet_ntop(socket.AF_INET, struct.pack('!I', addr_)))
                     except object:
                         _logger.warning("Failed to parse DNS packet")
