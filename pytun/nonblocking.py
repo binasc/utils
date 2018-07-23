@@ -2,7 +2,6 @@ import socket
 import errno
 from event import Event
 from collections import deque
-import traceback
 
 import loglevel
 _logger = loglevel.get_logger('nonblocking')
@@ -123,7 +122,6 @@ class NonBlocking(object):
                 self._onSent(self, sent_bytes, self._to_send_bytes)
             except Exception as e:
                 _logger.error('_onSent: %s', e)
-                _logger.exception(traceback.format_exc())
                 self._error = True
                 self._close_again()
 
@@ -178,7 +176,6 @@ class NonBlocking(object):
                         self._on_received(self, out, addr)
                 except Exception as e:
                     _logger.error('_decode: %s', e)
-                    _logger.exception(traceback.format_exc())
                     self._error = True
                     self._close_again()
                     raise self._RecvCBException(e)
@@ -239,10 +236,6 @@ class NonBlocking(object):
         _logger.debug('_on_close')
         _logger.debug('%s, closed', str(self))
 
-        for name in list(self._timers.keys()):
-            self.del_timer(name)
-
-        # in case of timeout happened
         Event.delEvent(self._wev)
 
         assert(self._timeoutEv is None)
@@ -255,7 +248,6 @@ class NonBlocking(object):
                 self._onClosed(self)
             except Exception as ex:
                 _logger.error('_onClosed: %s', ex)
-                _logger.exception(traceback.format_exc())
 
     def _close_again(self):
         _logger.debug('_close_again')
@@ -271,6 +263,9 @@ class NonBlocking(object):
         _logger.debug('%s, closing', str(self))
 
         self.remove_timeout()
+
+        for name in list(self._timers.keys()):
+            self.del_timer(name)
 
         timeout = 0
         if not self._error and self._connected and len(self._to_send) > 0:
