@@ -12,17 +12,6 @@ class Epoll:
 
     _epoll = None
 
-    def __init__(self):
-        self._registered_read = {}
-        self._registered_write = {}
-        self._fd_mask = {}
-
-        self._ready = []
-
-        self._fd = select.epoll()
-
-        self._last_time = time.time()
-
     @staticmethod
     def init():
         Epoll._epoll = Epoll()
@@ -31,6 +20,16 @@ class Epoll:
         Event.delEvent = staticmethod(lambda ev: Epoll._epoll.deregister(ev))
         Event.isEventSet = staticmethod(lambda ev: Epoll._epoll.is_set(ev))
         Event.processEvents = staticmethod(lambda t: Epoll._epoll.process_events(t))
+
+
+    def __init__(self):
+        self._fd = select.epoll()
+
+        self._registered_read = {}
+        self._registered_write = {}
+        self._fd_mask = {}
+
+        self._last_time = time.time()
 
     def register(self, event):
         if event.is_write():
@@ -88,41 +87,53 @@ class Epoll:
                 return fd in self._registered_read
         return False
 
+    def _close_fd(self, fd):
+        if fd in self._registered_read:
+            del self._registered_read[fd]
+        if fd in self._registered_write:
+            del self._registered_write[fd]
+        if fd in self._fd_mask:
+            del self._fd_mask[fd]
+            try:
+                self._fd.unregister(fd)
+            finally:
+                pass
+            try:
+                os.close(fd)
+            finally:
+                pass
+
     def process_events(self, timeout):
-        self._ready = []
+        _ready = []
         ready_list = self._fd.poll(timeout)
         for fd, ev_type in ready_list:
             handled = False
             if ev_type & select.EPOLLOUT:
                 if fd in self._registered_write:
-                    self._ready.append(self._registered_write[fd])
+                    _ready.append(self._registered_write[fd])
                     handled = True
             if ev_type & select.EPOLLIN:
                 if fd in self._registered_read:
-                    self._ready.append(self._registered_read[fd])
+                    _ready.append(self._registered_read[fd])
                     handled = True
             if not handled and fd not in self._fd_mask:
                 _logger.warning("wild fd: %d closed with type: %s", fd, str(ev_type))
-                fd.close()
+                self._close_fd(fd)
                 handled = True
             if not handled:
                 _logger.warning("fd: %d, type: %s" % (fd, str(ev_type)))
                 if fd in self._registered_write:
-                    self._ready.append(self._registered_write[fd])
+                    _ready.append(self._registered_write[fd])
                 if fd in self._registered_read:
-                    self._ready.append(self._registered_read[fd])
+                    _ready.append(self._registered_read[fd])
 
-        for event in self._ready:
+        for event in _ready:
             try:
                 if self.is_set(event):
                     event.get_handler()(event)
             except Exception as ex:
                 _logger.warning('event handler exception: %s', str(ex))
-                try:
-                    fd = event.get_fd()
-                    os.close(fd)
-                finally:
-                    pass
+                self._close_fd(event.get_fd())
 
         current_time = time.time()
         if current_time - self._last_time > 60.0:
