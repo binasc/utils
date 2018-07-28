@@ -85,7 +85,7 @@ class Tunnel(object):
 
         self._stream.set_on_sent(lambda _, sent, remain: self._on_sent(sent, remain))
         self._stream.set_on_received(lambda _, data, addr: self._on_received(data, addr))
-        self._stream.set_on_closed(lambda _: self._on_closed)
+        self._stream.set_on_closed(lambda _: self._on_closed())
         self._stream.set_on_decode_error(lambda _, received: self._on_decode_error(received))
 
         if self._connect_to is not None:
