@@ -38,7 +38,7 @@ def update_blocked_domain():
     try:
         fp = open('blocked.txt', 'r')
     except IOError as e:
-        _logger.warning("Failed to open blocked.txt: ", e)
+        _logger.warning("Failed to open blocked.txt: %s", str(e))
         return False
     new_blocked_domain = set()
     for line in fp.readlines():
@@ -67,7 +67,7 @@ def update_poisoned_domain(domain):
             fp.write('\n'.join(poisoned_domain))
             fp.close()
         except IOError as e:
-            _logger.warning("Failed to open poisoned.txt: ", e)
+            _logger.warning("Failed to open poisoned.txt: %s", str(e))
 
 
 def load_poisoned_domain():
@@ -75,7 +75,7 @@ def load_poisoned_domain():
     try:
         fp = open('poisoned.txt', 'r')
     except IOError as e:
-        _logger.warning("Failed to open poisoned.txt: ", e)
+        _logger.warning("Failed to open poisoned.txt: %s", str(e))
         return
     new_poisoned_domain = set()
     for line in fp.readlines():
