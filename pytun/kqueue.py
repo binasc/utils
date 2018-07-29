@@ -3,6 +3,7 @@ from event import Event
 
 import loglevel
 _logger = loglevel.get_logger('kqueue')
+_logger.setLevel(loglevel.DEFAULT_LEVEL)
 
 
 class Kqueue:
