@@ -1,6 +1,7 @@
 from stream import Stream
 import obscure
 import struct
+import uuid
 
 import loglevel
 _logger = loglevel.get_logger('tunnel')
@@ -11,15 +12,12 @@ UNKNOWN_CONN_ADDR = "127.0.0.1"
 UNKNOWN_CONN_PORT = 8080
 
 
-def server_side_on_accepted(sock, _):
-    tunnel = Tunnel(sock)
-    tunnel.initialize()
-
-
 class Tunnel(object):
     _TCP_INITIAL_DATA = 0
-    _UDP_INITIAL_DATA = 1
-    _TUN_INITIAL_DATA = 2
+    _TCP_CLOSED_DATA = 1
+    _UDP_INITIAL_DATA = 2
+    _UDP_CLOSED_DATA = 3
+    _TUN_INITIAL_DATA = 4
     _PAYLOAD = 10
 
     _static_handlers = {}
@@ -29,8 +27,16 @@ class Tunnel(object):
         Tunnel._static_handlers[Tunnel._TCP_INITIAL_DATA] = handler
 
     @staticmethod
+    def set_tcp_closed_handler(handler):
+        Tunnel._static_handlers[Tunnel._TCP_CLOSED_DATA] = handler
+
+    @staticmethod
     def set_udp_initial_handler(handler):
         Tunnel._static_handlers[Tunnel._UDP_INITIAL_DATA] = handler
+
+    @staticmethod
+    def set_udp_closed_handler(handler):
+        Tunnel._static_handlers[Tunnel._UDP_CLOSED_DATA] = handler
 
     @staticmethod
     def set_tun_initial_handler(handler):
@@ -44,7 +50,7 @@ class Tunnel(object):
         self._on_stream_closed = None
         self._handlers = self._static_handlers.copy()
         self._handlers.update({
-            Tunnel._PAYLOAD: lambda _, data: self._on_payload(self, data)
+            Tunnel._PAYLOAD: lambda _, id_, data: self._on_payload(self, id_, data)
         })
         self._on_buffer_low = None
         self._on_buffer_high = None
@@ -93,8 +99,8 @@ class Tunnel(object):
         else:
             self._stream.begin_receiving()
 
-    def _send_content(self, type_, content):
-        to_send = struct.pack('!HI', type_, len(content)) + content
+    def _send_content(self, type_, id_, content):
+        to_send = struct.pack('!HI', type_, len(content)) + id_.get_bytes() + content
         self._stream.send(to_send)
         if self._stream.pending_bytes() >= BUFF_SIZE:
             if self._on_buffer_high is not None:
@@ -108,30 +114,37 @@ class Tunnel(object):
 
     def _on_received(self, data, _addr):
         _logger.debug("tunnel %s received %d bytes" % (str(self), len(data)))
-        if len(data) < 6:
+        if len(data) < 6 + 16:
             raise Exception('corrupted data')
 
         type_, content_length = struct.unpack('!HI', data[: 6])
+        id_ = uuid.UUID(bytes=data[6: 6 + 16])
 
         if type_ not in self._handlers or self._handlers[type_] is None:
             _logger.warning("tunnel message type %d can not be handled", type_)
 
-        if len(data) - 6 != content_length:
+        if len(data) - 6 - 16 != content_length:
             raise Exception('corrupted data')
 
-        self._handlers[type_](self, data[6:])
+        self._handlers[type_](self, id_, data[6 + 16:])
 
-    def send_tcp_initial_data(self, data):
-        self._send_content(Tunnel._TCP_INITIAL_DATA, data)
+    def send_tcp_initial_data(self, id_, data):
+        self._send_content(Tunnel._TCP_INITIAL_DATA, id_, data)
 
-    def send_udp_initial_data(self, data):
-        self._send_content(Tunnel._UDP_INITIAL_DATA, data)
+    def send_tcp_closed_data(self, id_, data=''):
+        self._send_content(Tunnel._TCP_CLOSED_DATA, id_, data)
 
-    def send_tun_initial_data(self, data):
-        self._send_content(Tunnel._TUN_INITIAL_DATA, data)
+    def send_udp_initial_data(self, id_, data):
+        self._send_content(Tunnel._UDP_INITIAL_DATA, id_, data)
 
-    def send_payload(self, payload):
-        self._send_content(Tunnel._PAYLOAD, payload)
+    def send_udp_closed_data(self, id_, data=''):
+        self._send_content(Tunnel._UDP_CLOSED_DATA, id_, data)
+
+    def send_tun_initial_data(self, id_, data):
+        self._send_content(Tunnel._TUN_INITIAL_DATA, id_, data)
+
+    def send_payload(self, id_, payload):
+        self._send_content(Tunnel._PAYLOAD, id_, payload)
 
     def set_on_payload(self, handler):
         self._on_payload = handler

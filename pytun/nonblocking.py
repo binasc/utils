@@ -1,5 +1,6 @@
 import socket
 import errno
+import traceback
 from event import Event
 from collections import deque
 
@@ -176,6 +177,7 @@ class NonBlocking(object):
                         self._on_received(self, out, addr)
                 except Exception as e:
                     _logger.error('_decode: %s', e)
+                    _logger.error('%s', traceback.format_exc())
                     self._error = True
                     self._close_again()
                     raise self._RecvCBException(e)

@@ -2,8 +2,6 @@
 import sys
 import event
 import getopt
-import threading
-import subprocess
 from acceptor import Acceptor
 from dgram import Dgram
 from tundevice import TunDevice
@@ -11,6 +9,8 @@ from tundevice import TunDevice
 import tcptun
 import udptun
 import tuntun
+from tunnel import Tunnel
+from delegation import Delegation
 
 import tunnel
 
@@ -52,6 +52,13 @@ def process_connect_side_argument(argument):
 def acceptor_on_closed(_self):
     _logger.exception('Acceptor closed!')
     sys.exit(-1)
+
+
+def server_side_on_accepted(sock, _):
+    tunnel = Tunnel(sock)
+    tunnel.set_on_payload(Delegation.on_payload)
+    tunnel.set_on_closed(Delegation.on_closed)
+    tunnel.initialize()
 
 
 _helpText = '''Usage:
@@ -96,12 +103,21 @@ if __name__ == '__main__':
         print(_helpText)
         sys.exit(0)
 
+    Tunnel.set_tcp_closed_handler(tcptun.on_stream_closed)
+    Tunnel.set_udp_closed_handler(udptun.on_dgram_closed)
+    if accept_mode:
+        Tunnel.set_tcp_initial_handler(tcptun.on_server_side_initialized)
+        Tunnel.set_udp_initial_handler(udptun.on_server_side_initialized)
+        Delegation.set_type(Delegation.ACCEPT)
+    else:
+        Delegation.set_type(Delegation.CONNECT)
+
     for addr, port, type_, arg in server_list:
         if accept_mode:
             acceptor = Acceptor()
             acceptor.bind(addr, port)
             acceptor.listen()
-            acceptor.set_on_accepted(tunnel.server_side_on_accepted)
+            acceptor.set_on_accepted(server_side_on_accepted)
             acceptor.set_on_closed(acceptor_on_closed)
         else:
             via, to = arg
@@ -116,11 +132,13 @@ if __name__ == '__main__':
                 receiver.bind(addr, port)
                 receiver.set_on_received(udptun.gen_on_client_side_received(via, to))
                 receiver.set_on_closed(acceptor_on_closed)
+                receiver.on_tunnel_received = udptun.on_tunnel_received
+                receiver.on_tunnel_closed = udptun.on_tunnel_closed
                 receiver.begin_receiving()
             elif type_ == 'tun':
                 # port as cidr prefix
                 receiver = TunDevice('tun', addr, port)
-                receiver.set_on_received(tuntun.gen_on_client_side_received((addr, port), via, to))
+                receiver.set_on_received(tuntun.gen_on_client_side_received(receiver, (addr, port), via, to))
                 receiver.set_on_closed(acceptor_on_closed)
                 receiver.begin_receiving()
 

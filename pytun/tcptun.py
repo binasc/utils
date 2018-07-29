@@ -1,6 +1,8 @@
 import json
+import uuid
 from stream import Stream
 from tunnel import Tunnel
+from delegation import Delegation
 
 import logging
 import loglevel
@@ -14,61 +16,83 @@ def gen_on_client_side_accepted(via, to):
         'port': to[1]
     })
 
-    def on_accepted(frontend, from_):
-        tunnel = Tunnel(connect_to=via)
+    def on_accepted(endpoint, from_):
+        endpoint.uuid = uuid.uuid4()
+        tunnel = Delegation.get_tunnel(endpoint.uuid)
+        if tunnel is None:
+            tunnel = Tunnel(connect_to=via)
+            tunnel.set_on_payload(Delegation.on_payload)
+            tunnel.set_on_closed(Delegation.on_closed)
+            tunnel.initialize()
+        tunnel.send_tcp_initial_data(endpoint.uuid, initial_data)
+        Delegation.register(endpoint.uuid, tunnel, endpoint)
 
-        def on_payload(_, data):
-            frontend.send(data)
+        def on_received(self_, data, _):
+            tunnel_ = Delegation.get_tunnel(self_.uuid)
+            if tunnel_ is not None:
+                tunnel_.send_payload(self_.uuid, data)
+            else:
+                self_.close()
 
-        def on_tunnel_closed(_):
-            frontend.close()
+        def on_closed(self_):
+            tunnel_ = Delegation.get_tunnel(self_.uuid)
+            if tunnel_ is not None:
+                tunnel_.send_tcp_closed_data(self_.uuid)
 
-        def on_frontend_received(_, data, _addr):
-            tunnel.send_payload(data)
+        def on_tunnel_received(self_, _, data):
+            self_.send(data)
 
-        def on_frontend_closed(_):
-            tunnel.close()
+        def on_tunnel_closed(self_):
+            self_.close()
 
-        tunnel.set_on_payload(on_payload)
-        tunnel.set_on_closed(on_tunnel_closed)
-        tunnel.initialize()
-        tunnel.send_tcp_initial_data(initial_data)
-        frontend.set_on_received(on_frontend_received)
-        frontend.set_on_closed(on_frontend_closed)
-        frontend.begin_receiving()
+        endpoint.set_on_received(on_received)
+        endpoint.set_on_closed(on_closed)
+        endpoint.on_tunnel_received = on_tunnel_received
+        endpoint.on_tunnel_closed = on_tunnel_closed
+        endpoint.begin_receiving()
 
-        _logger.info("from %s:%d (%s to %s) connected" % (from_[0], from_[1], str(frontend), str(tunnel)))
+        _logger.info("from %s:%d (%s) connected", from_[0], from_[1], str(endpoint))
 
     return on_accepted
 
 
-def on_server_side_initialized(tunnel, initial_data):
+def on_server_side_initialized(tunnel, id_, initial_data):
     json_data = json.loads(initial_data)
     address, port = json_data['addr'], json_data['port']
 
-    backend = Stream()
+    endpoint = Stream()
+    endpoint.uuid = id_
+    Delegation.register(endpoint.uuid, tunnel, endpoint)
 
-    def on_payload(_, data):
-        backend.send(data)
+    def on_received(self_, data, _):
+        tunnel_ = Delegation.get_tunnel(self_.uuid)
+        if tunnel_ is not None:
+            tunnel_.send_payload(self_.uuid, data)
+        else:
+            self_.close()
 
-    def on_tunnel_closed(_):
-        backend.close()
+    def on_closed(self_):
+        tunnel_ = Delegation.get_tunnel(self_.uuid)
+        if tunnel_ is not None:
+            tunnel_.send_tcp_closed_data(self_.uuid)
 
-    def on_backend_received(_, data, _addr):
-        tunnel.send_payload(data)
+    def on_tunnel_received(self_, _, data):
+        self_.send(data)
 
-    def on_backend_closed(_):
-        tunnel.close()
+    def on_tunnel_closed(self_):
+        self_.close()
 
-    tunnel.set_on_payload(on_payload)
-    tunnel.set_on_closed(on_tunnel_closed)
-    tunnel.set_on_buffer_high(lambda _: backend.stop_receiving())
-    tunnel.set_on_buffer_low(lambda _: backend.begin_receiving())
-    backend.set_on_received(on_backend_received)
-    backend.set_on_closed(on_backend_closed)
-    backend.connect(address, port)
+    endpoint.set_on_received(on_received)
+    endpoint.set_on_closed(on_closed)
+    endpoint.on_tunnel_received = on_tunnel_received
+    endpoint.on_tunnel_closed = on_tunnel_closed
+    endpoint.connect(address, port)
 
-    _logger.info('connect to: %s:%d (%s to %s)', address, port, str(tunnel), str(backend))
+    _logger.info('connect to: %s:%d (%s)', address, port, str(endpoint))
 
 
-Tunnel.set_tcp_initial_handler(on_server_side_initialized)
+def on_stream_closed(_tunnel, id_, _):
+    endpoint = Delegation.query_endpoint(id_)
+    if endpoint is not None:
+        endpoint.close()
+    Delegation.de_register(id_)
