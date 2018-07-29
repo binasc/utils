@@ -52,10 +52,11 @@ class Packet(object):
             self._packet = self._packet[0: 10] + struct.pack('!H', checksum) + self._packet[12:]
             self._ip['checksum'] = checksum
         if self._udp_delta != 0:
-            checksum = self._checksum(self._udp['checksum'], self._udp_delta)
-            offset = self._ip['length']
-            self._packet = self._packet[0: offset + 6] + struct.pack('!H', checksum) + self._packet[offset + 8:]
-            self._udp['checksum'] = checksum
+            if self._udp['checksum'] != 0:
+                checksum = self._checksum(self._udp['checksum'], self._udp_delta)
+                offset = self._ip['length']
+                self._packet = self._packet[0: offset + 6] + struct.pack('!H', checksum) + self._packet[offset + 8:]
+                self._udp['checksum'] = checksum
         if self._tcp_delta != 0:
             checksum = self._checksum(self._tcp['checksum'], self._tcp_delta)
             offset = self._ip['length']
@@ -169,3 +170,14 @@ class Packet(object):
     def get_udp_load(self):
         offset = self._ip['length']
         return self._packet[offset + 8:]
+
+
+    def set_udp_load(self, begin, length, replacement):
+        offset = self._ip['length'] + 8 + begin
+        # TODO: support checksum entire packet
+        new, old = struct.unpack('!HH', replacement + self._packet[offset: offset + length])
+        self._packet = self._packet[: offset] + replacement + self._packet[offset + length:]
+        delta = new - old
+        if self.is_udp():
+            self._parse_udp()
+            self._udp_delta += delta
