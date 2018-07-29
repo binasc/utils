@@ -85,7 +85,7 @@ class Delegation(object):
             if hasattr(tunnel, 'nonblockings') and id_ in tunnel.nonblockings:
                 del tunnel.nonblockings[id_]
         if id_ in cls._id_2_endpoint:
-            del cls._id_2_endpoint
+            del cls._id_2_endpoint[id_]
 
     @classmethod
     def query_endpoint(cls, id_):
