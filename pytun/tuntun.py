@@ -4,6 +4,7 @@ import socket
 import re
 import copy
 import random
+import time
 from watchdog.observers import Observer
 from watchdog.events import PatternMatchingEventHandler
 from tundevice import TunDevice
@@ -29,8 +30,40 @@ TEST_DNS_SERVER = ip_string_to_long('35.201.154.22')
 poisoned_domain = set()
 blocked_domain = set()
 blocked_address = set()
+blocked_address_last_sync = current = time.time()
 normal_address = set()
 modified_query = {}
+
+
+def restore_blocked_address():
+    try:
+        fp = open('blocked_ip.txt', 'rb')
+        bytes = fp.read()
+        for i in range(0, len(bytes), 4):
+            blocked_address.add(struct.unpack('!I', bytes[i : i + 4])[0])
+        _logger.info('Update %d blocked ips', len(bytes) / 4)
+        fp.close()
+    except IOError as e:
+        _logger.warning("Failed to open blocked_ip.txt: %s", str(e))
+        return False
+restore_blocked_address()
+
+
+def update_blocked_address(address):
+    blocked_address.update(address)
+    current = time.time()
+    global blocked_address_last_sync
+    if current - blocked_address_last_sync > 60:
+        try:
+            fp = open('blocked_ip.txt', 'wb')
+        except IOError as e:
+            _logger.warning("Failed to write blocked_ip.txt: %s", str(e))
+            return
+        for ip in blocked_address:
+            fp.write(struct.pack('!I', ip))
+        fp.close()
+        _logger.info("Synced %d blocked ip", len(blocked_address))
+        blocked_address_last_sync = current
 
 
 def update_blocked_domain():
@@ -211,7 +244,7 @@ def gen_on_client_side_received(tundev, from_, via, to):
         packet = Packet(data)
         addr_list, id_, _ = try_parse_dns_result(packet)
         if addr_list is not None:
-            blocked_address.update(addr_list)
+            update_blocked_address(addr_list)
             try_restore_dns(packet, id_)
         self.send(packet.get_packet())
 
