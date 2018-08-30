@@ -77,11 +77,12 @@ class Packet(object):
     def _parse_tcp(self):
         self._parse_ip()
         offset = self._ip['length']
-        sport, dport, _, _, _, checksum = struct.unpack('!HHIIIH', self._packet[offset: offset + 18])
+        sport, dport, _, _, _, flags, _, checksum = struct.unpack('!HHIIBBHH', self._packet[offset: offset + 18])
         self._tcp = {
             'sport': sport,
             'dport': dport,
-            'checksum': checksum
+            'checksum': checksum,
+            'flags': flags
         }
 
     def get_protocol(self):
@@ -102,6 +103,12 @@ class Packet(object):
     def is_tcp(self):
         self._parse_ip()
         return self._ip['protocol'] == self.PROTO_TCP
+
+    def is_rst(self):
+        if self.is_tcp():
+            self._parse_tcp()
+            return self._tcp['flags'] & 0x20 != 0
+        return False
 
     def get_raw_source_ip(self):
         self._parse_ip()

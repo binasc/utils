@@ -224,6 +224,9 @@ def gen_on_client_side_received(tundev, from_, via, to):
     def connect_side_multiplex(tun_device, _, packet):
         if need_restore(from_addr, packet):
             restore_dst(packet)
+            if packet.is_rst():
+                _logger.info('%s has been reset', packet.get_source_ip())
+
             addr_list, id_, domain = try_parse_dns_result(packet)
             if addr_list is not None:
                 if packet.get_raw_source_ip() == TEST_DNS_SERVER:
@@ -277,6 +280,8 @@ def gen_on_client_side_received(tundev, from_, via, to):
             tunnel = Tunnel(connect_to=via)
             tunnel.set_on_payload(Delegation.on_payload)
             tunnel.set_on_closed(Delegation.on_closed)
+            tunnel.set_on_buffer_high(Delegation.set_on_buffer_high)
+            tunnel.set_on_buffer_low(Delegation.set_on_buffer_low)
             tunnel.initialize()
         if Delegation.query_endpoint(id_) is None:
             Delegation.register(id_, tunnel, tun_device)

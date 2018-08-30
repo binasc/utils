@@ -43,6 +43,18 @@ class Delegation(object):
             if key in Delegation._id_2_tunnel:
                 del Delegation._id_2_tunnel[key]
 
+    @staticmethod
+    def set_on_buffer_high(tunnel):
+        if hasattr(tunnel, 'nonblockings'):
+            for _, nonblocking in tunnel.nonblockings.items():
+                nonblocking.stop_receiving()
+
+    @staticmethod
+    def set_on_buffer_low(tunnel):
+        if hasattr(tunnel, 'nonblockings'):
+            for _, nonblocking in tunnel.nonblockings.items():
+                nonblocking.begin_receiving()
+
     @classmethod
     def set_type(cls, type):
         cls._type = type

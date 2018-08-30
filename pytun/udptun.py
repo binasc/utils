@@ -48,6 +48,8 @@ def gen_on_client_side_received(via, to):
             tunnel = Tunnel(connect_to=via)
             tunnel.set_on_payload(Delegation.on_payload)
             tunnel.set_on_closed(Delegation.on_closed)
+            tunnel.set_on_buffer_high(Delegation.set_on_buffer_high)
+            tunnel.set_on_buffer_low(Delegation.set_on_buffer_low)
             tunnel.initialize()
         if Delegation.query_endpoint(id_) is None:
             tunnel.send_udp_initial_data(id_, initial_data)

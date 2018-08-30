@@ -58,6 +58,8 @@ def server_side_on_accepted(sock, _):
     tunnel = Tunnel(sock)
     tunnel.set_on_payload(Delegation.on_payload)
     tunnel.set_on_closed(Delegation.on_closed)
+    tunnel.set_on_buffer_high(Delegation.set_on_buffer_high)
+    tunnel.set_on_buffer_low(Delegation.set_on_buffer_low)
     tunnel.initialize()
 
 
