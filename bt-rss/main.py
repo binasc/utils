@@ -26,6 +26,7 @@ import time
 import datetime
 import cPickle
 import urllib
+import re
 
 def redirectMydrivers(url, html):
     postpage = html.xpath('//div[@class="postpage"]')
@@ -40,16 +41,24 @@ def redirectMydrivers(url, html):
 
 methods = {
     'news.mydrivers.com':
-        ('//div[@class="news_info"]',
         (
-            './/p[@class="jcuo1"]/following-sibling::*',
-            './/p[@class="jcuo1"]'
-            #'.//table[last()]',
-            #'.//p[@class="jcuo1"]',
-            #'.//div[@class="weixin"]',
-            #'.//p[@class="news_bq"]/following-sibling::*'
-        ),
-        redirectMydrivers)
+            (
+                '//div[@class="news_info"]',
+                '//div[@class="pc_info"]',
+            ),
+            (
+                './/div[@style="overflow:hidden;"]/following-sibling::*',
+                './/div[@style="overflow:hidden;"]',
+                './/div[@class="pc_bt1"]',
+                #'.//p[@class="jcuo1"]',
+                #'.//script',
+                #'.//table[last()]',
+                #'.//p[@class="jcuo1"]',
+                #'.//div[@class="weixin"]',
+                #'.//p[@class="news_bq"]/following-sibling::*'
+            ),
+            redirectMydrivers
+        )
 }
 
 class UrlContent(db.Model):
@@ -66,9 +75,12 @@ class TestHandler(webapp2.RequestHandler):
             if count < 1000:
                 break
         
-        link = "http://news.mydrivers.com/1/269/269246.htm"
+        link = "http://news.mydrivers.com/1/589/589941.htm"
         page = fetchWebContent(link)
         (content, redirect) = getDescription(link, page);
+        if redirect is not None:
+            page = fetchWebContent(redirect)
+            (content, redirect) = getDescription(redirect, page);
         
         self.response.write(content)
 
@@ -192,7 +204,9 @@ class RssHandler(webapp2.RequestHandler):
         self.response.write(rss.to_xml("utf-8"))
 
 def catenateUrl(url, path):
-    if path[0] == '/':
+    if path.startswith('//'):
+        return url.scheme + ':' + path
+    elif path.startswith('/'):
         return url.scheme + '://' + url.netloc + path
     else:
         return url.scheme + '://' + url.netloc + url.path[0: url.path.rfind('/') + 1] + path
@@ -204,17 +218,30 @@ def alterLink(url, attr, elements):
             e.attrib[attr] = catenateUrl(url, c)
 
 def getDescription(link, page):
-    page = page.decode('gbk', 'replace')
-
     url = urlparse(link)
     method = methods[url.netloc]
     if method == None:
         return (None, None)
 
+    charset = 'utf-8'
+    r = re.search('charset=([\w-]+)', page)
+    if r is not None:
+        charset = r.group(1)
+    page = page.decode(charset, 'replace')
+
     html = etree.HTML(page); 
-    content = html.xpath(method[0])
+
+    for cpath in method[0]:
+        content = html.xpath(cpath)
+        if len(content) > 0:
+            break;
+
     if len(content) == 0:
         return (None, None)
+
+    href = method[2](url, html)
+    if href != None:
+        logging.debug("redirect to %s", href);
 
     for rmpath in method[1]:
         for toremove in content[0].xpath(rmpath):
@@ -222,10 +249,6 @@ def getDescription(link, page):
 
     alterLink(url, 'href', content[0].xpath('.//a[@href]'))
     alterLink(url, 'src', content[0].xpath('.//img[@src]'))
-
-    href = method[2](url, html)
-    if href != None:
-        logging.debug("redirect to %s", href);
 
     return (etree.tostring(content[0], method='html', encoding='utf-8'), href)
 
