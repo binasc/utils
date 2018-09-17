@@ -298,8 +298,9 @@ def gen_on_client_side_received(tundev, from_, via, to):
                 through_tunnel = True
 
         if not through_tunnel and not dns_query and dst_ip not in normal_address:
-            _logger.info('unknown address: %s sent directly',
-                         socket.inet_ntop(socket.AF_INET, struct.pack('!I', dst_ip)))
+            _logger.info('unknown address: %s:%d sent directly',
+                         socket.inet_ntop(socket.AF_INET, struct.pack('!I', dst_ip)),
+                         packet.get_destination_port())
             through_tunnel = False
 
         if not through_tunnel:

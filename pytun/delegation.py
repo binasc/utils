@@ -24,7 +24,8 @@ class Delegation(object):
         endpoint = Delegation.query_endpoint(id_)
         if endpoint is None:
             _logger.error('no endpoint for id: %s', id_)
-        endpoint.on_tunnel_received(endpoint, id_, data_)
+        else:
+            endpoint.on_tunnel_received(endpoint, id_, data_)
 
     @staticmethod
     def on_closed(tunnel):
