@@ -45,12 +45,15 @@ class Event:
     def del_timer(self):
         self._timer_set = False
 
+    def is_timer(self):
+        return self._timer_set
+
     @staticmethod
     def find_timer():
         current = time.time()
         while len(Event._timers) > 0:
             timeout, event = Event._timers[0]
-            if not event._timer_set:
+            if not event.is_timer():
                 heapq.heappop(Event._timers)
             elif timeout > current:
                 return timeout - current
@@ -68,9 +71,9 @@ class Event:
                 break
             else:
                 heapq.heappop(Event._timers)
-                if event._timer_set:
+                if event.is_timer():
                     try:
-                        event._handler(event)
+                        event.get_handler()(event)
                     except Exception as ex:
                         _logger.warning("timer handler exception: %s", str(ex))
 
