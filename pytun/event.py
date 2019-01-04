@@ -15,7 +15,6 @@ class Event:
         self._write = False
         self._handler = None
         self._timer_set = False
-        self._active = False
 
     def set_fd(self, fd):
         self._fd = fd
@@ -34,12 +33,6 @@ class Event:
 
     def set_handler(self, handler):
         self._handler = handler
-
-    def set_active(self, active):
-        self._active = active
-
-    def is_active(self):
-        return self._active
 
     @staticmethod
     def add_timer(milliseconds):

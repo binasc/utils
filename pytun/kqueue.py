@@ -1,9 +1,12 @@
 import select
+import time
+import os
 from event import Event
 
+import logging
 import loglevel
 _logger = loglevel.get_logger('kqueue')
-_logger.setLevel(loglevel.DEFAULT_LEVEL)
+_logger.setLevel(logging.DEBUG)
 
 
 class Kqueue:
@@ -26,47 +29,37 @@ class Kqueue:
         self._registered_read = {}
         self._registered_write = {}
 
-    def register(self, event):
-        if event.is_active():
-            return
+        self._last_time = time.time()
 
+    def register(self, event):
         fd = event.get_fd()
         if event.is_write():
-            if fd in self._registered_write:
-                _logger.error("Duplicate write registration of fd: %d", fd)
-                raise Exception("Duplicate write registration")
-            filter_ = select.KQ_FILTER_WRITE
+            assert(fd not in self._registered_write)
             self._registered_write[fd] = event
+            filter_ = select.KQ_FILTER_WRITE
         else:
-            if fd in self._registered_read:
-                _logger.error("Duplicate read registration of fd: %d", fd)
-                raise Exception("Duplicate read registration")
+            assert(fd not in self._registered_read)
             self._registered_read[fd] = event
             filter_ = select.KQ_FILTER_READ
 
         self._change_list.append(select.kevent(fd, filter=filter_, flags=select.KQ_EV_ADD))
-        event.set_active(True)
 
     def deregister(self, event):
-        if not event.is_active():
-            return
-
         fd = event.get_fd()
         if event.is_write():
             if fd not in self._registered_write:
                 _logger.warn("No write event registered for fd: %d", fd)
                 return
-            filter_ = select.KQ_FILTER_WRITE
             del self._registered_write[fd]
+            filter_ = select.KQ_FILTER_WRITE
         else:
             if fd not in self._registered_read:
                 _logger.warn("No read event registered for fd: %d", fd)
                 return
-            filter_ = select.KQ_FILTER_READ
             del self._registered_read[fd]
+            filter_ = select.KQ_FILTER_READ
 
-        self._change_list.append(select.kevent(fd, filter=filter_, flags=select.KQ_EV_DELETE))
-        event.set_active(False)
+        self._fd.control([select.kevent(fd, filter=filter_, flags=select.KQ_EV_DELETE)], 0, 0)
 
     def is_set(self, event):
         fd = event.get_fd()
@@ -75,11 +68,21 @@ class Kqueue:
         else:
             return fd in self._registered_read
 
+    def _close_fd(self, fd):
+        if fd in self._registered_read:
+            self._change_list.append(select.kevent(fd, filter=select.KQ_FILTER_WRITE, flags=select.KQ_EV_DELETE))
+            del self._registered_read[fd]
+        if fd in self._registered_write:
+            self._change_list.append(select.kevent(fd, filter=select.KQ_FILTER_READ, flags=select.KQ_EV_DELETE))
+            del self._registered_write[fd]
+        try:
+            os.close(fd)
+        finally:
+            pass
+
     def process_events(self, timeout):
         ready = []
         ready_list = self._fd.control(self._change_list, Kqueue.KQUEUE_MAX_EVENTS, None if timeout < 0 else timeout)
-        _logger.debug("kqueue returned %d events", len(ready_list))
-        _logger.debug("kqueue returned events: %s", str(ready_list))
         for k_event in ready_list:
             fd = k_event.ident
             filter_ = k_event.filter
@@ -92,11 +95,10 @@ class Kqueue:
                 if fd in self._registered_read:
                     ready.append(self._registered_read[fd])
                     handled = True
-            if not handled:
-                if filter_ == select.KQ_FILTER_READ and k_event.flags == select.KQ_EV_ERROR:
-                    _logger.debug("Unhandled fd: %d with event filter: %d", fd, filter_)
-                else:
-                    _logger.warn("Unhandled fd: %d with event filter: %d", fd, filter_)
+            if filter_ == select.KQ_FILTER_WRITE or filter_ == select.KQ_FILTER_READ:
+                if handled is False:
+                    _logger.debug('%s not handled', str(k_event))
+                assert(handled is True)
         self._change_list = []
 
         for event in ready:
@@ -104,6 +106,14 @@ class Kqueue:
                 if self.is_set(event):
                     event.get_handler()(event)
             except Exception as ex:
-                _logger.warning('Event handler exception: %s' % str(ex))
-                import traceback
-                traceback.print_exc()
+                _logger.warning('event handler exception: %s', str(ex))
+                self._close_fd(event.get_fd())
+                if _logger.level <= logging.DEBUG:
+                    import traceback
+                    traceback.print_exc()
+
+        current_time = time.time()
+        if current_time - self._last_time > 60.0:
+            _logger.info('current number of opened fd: %d',
+                         len(self._registered_write.viewkeys() | self._registered_read.viewkeys()))
+            self._last_time = current_time
