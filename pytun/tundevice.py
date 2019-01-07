@@ -65,9 +65,9 @@ class TunDevice(NonBlocking):
         _logger.debug('ifconfig cmd: ' + cmd)
         subprocess.check_call(cmd, shell=True)
 
-        NonBlocking.__init__(self, FileWrapper(fd))
+        NonBlocking.__init__(self, FileWrapper(fd), 'TUN')
         self._connected = True
-        self._decoders = [(self._ipv4_decoder, [''])]
+        self._decoders = [self._ReceiveHandlerContext(self._ipv4_decoder)]
 
         self._errorType = OSError
 
@@ -78,7 +78,7 @@ class TunDevice(NonBlocking):
     def set_on_received(self, on_received):
 
         def on_received_wrapper(_on_received, self_, data, _):
-            _on_received(self_, data, Packet(data))
+            return _on_received(self_, data, Packet(data))
 
         self._on_received = partial(on_received_wrapper, on_received)
 

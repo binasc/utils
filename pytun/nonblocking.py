@@ -4,35 +4,47 @@ import traceback
 from event import Event
 from collections import deque
 
+import logging
 import loglevel
-_logger = loglevel.get_logger('nonblocking')
+_logger = loglevel.get_logger('non-blocking')
 _logger.setLevel(loglevel.DEFAULT_LEVEL)
 
 
 class NonBlocking(object):
 
-    def __init__(self, fd):
+    class _ReceiveHandlerContext(object):
+
+        def __init__(self, handler):
+            self.handler = handler
+            self.remain = ''
+
+    def __init__(self, fd, prefix=None):
         self._fd = fd
+        self._prefix = prefix
         self.set_non_blocking()
 
-        self._to_send_bytes = 0
         self._to_send = deque()
 
         self._encoders = []
-        self._decoders = [(lambda data: (data, len(data)), [''])]
+        self._decoders = []
+
+        self._remain = ''
 
         self._error = False
 
         self._connected = False
+        self._fin_received = False
+        self._fin_appended = False
+        self._fin_sent = False
+        self._closed = False
 
-        self._onSent = None
+        self._on_ready_to_send = None
+        self._on_send_buffer_full = None
         self._on_received = None
-        self._onClosed = None
+        self._on_fin_received = None
+        self._on_closed = None
 
         self._cev = None
-
-        self._timeout = 0
-        self._timeoutEv = None
 
         self._wev = Event()
         self._wev.set_write(True)
@@ -49,8 +61,6 @@ class NonBlocking(object):
         self._decodeError = False
         self._onDecodeError = None
 
-        self._timers = {}
-
     def __hash__(self):
         return hash(self._fd.fileno())
 
@@ -60,19 +70,31 @@ class NonBlocking(object):
         return self._fd.fileno() == other._fd.fileno()
 
     def __str__(self):
-        return "fd: %d" % (self._fd.fileno())
+        if self._closed:
+            return "%s: #" % self._prefix
+        else:
+            return "%s: %d" % (self._prefix, self._fd.fileno())
+
+    def set_prefix(self, prefix):
+        self._prefix = prefix
 
     def set_non_blocking(self):
         raise NotImplemented
 
-    def set_on_sent(self, on_sent):
-        self._onSent = on_sent
+    def set_on_ready_to_send(self, handler):
+        self._on_ready_to_send = handler
+
+    def set_on_send_buffer_full(self, handler):
+        self._on_send_buffer_full = handler
 
     def set_on_received(self, on_received):
         self._on_received = on_received
 
+    def set_on_fin_received(self, on_fin_received):
+        self._on_fin_received = on_fin_received
+
     def set_on_closed(self, on_closed):
-        self._onClosed = on_closed
+        self._on_closed = on_closed
 
     def set_on_decode_error(self, on_decode_error):
         self._onDecodeError = on_decode_error
@@ -81,27 +103,85 @@ class NonBlocking(object):
         self._encoders.append(handler)
 
     def append_receive_handler(self, handler):
-        self._decoders.append((handler, ['']))
+        self._decoders.append(self._ReceiveHandlerContext(handler))
 
-    def begin_receiving(self):
-        _logger.debug('begin_receiving')
-        if not self._connected or self._cev is not None:
+    def start_receiving(self):
+        _logger.debug('%s, start_receiving', str(self))
+        if not self._connected or self._closed or self._fin_received:
             return
         if not Event.isEventSet(self._rev):
+            _logger.debug('%s, start_receiving::addEvent', str(self))
             Event.addEvent(self._rev)
 
     def stop_receiving(self):
-        _logger.debug('stop_receiving')
-        Event.delEvent(self._rev)
+        _logger.debug('%s, stop_receiving', str(self))
+        if Event.isEventSet(self._rev):
+            _logger.debug('%s, stop_receiving::delEvent', str(self))
+            Event.delEvent(self._rev)
+
+    def _do_close(self):
+        _logger.debug('%s, _do_close', str(self))
+        if self._error:
+            self._stop_sending()
+            self.stop_receiving()
+        if self._cev is None:
+            self._cev = Event.add_timer(0)
+            self._cev.set_handler(lambda ev: self._on_close())
+
+    def _receive_fin(self):
+        _logger.debug('%s, _receive_fin', str(self))
+        self._fin_received = True
+        self.stop_receiving()
+        if self._on_fin_received is not None:
+            try:
+                self._on_fin_received(self)
+            except Exception as ex:
+                _logger.error('_on_fin_received: %s', str(ex))
+                if _logger.level <= logging.DEBUG:
+                    _logger.error('%s', traceback.format_exc())
+                self._error = True
+                self._do_close()
+        if self._fin_sent:
+            self._stop_sending()
+            self._do_close()
+
+    def _send_fin(self):
+        raise NotImplemented
 
     def _send(self, data, addr):
         raise NotImplemented
 
+    def _start_sending(self):
+        _logger.debug('%s, _start_sending', str(self))
+        if not Event.isEventSet(self._wev):
+            _logger.debug('%s, _start_sending::addEvent', str(self))
+            Event.addEvent(self._wev)
+
+    def _stop_sending(self):
+        _logger.debug('%s, _stop_sending', str(self))
+        if Event.isEventSet(self._wev):
+            _logger.debug('%s, _stop_sending::delEvent', str(self))
+            Event.delEvent(self._wev)
+
     def _on_send(self):
-        _logger.debug('_on_send')
+        _logger.debug('%s, _on_send', str(self))
+        if self._fin_sent:
+            self._stop_sending()
+            if self._fin_received:
+                self._do_close()
+            return
+
         sent_bytes = 0
+        ready_to_send = True
         while len(self._to_send) > 0:
             data, addr = self._to_send.popleft()
+            if data is None:
+                left = len(self._to_send)
+                if left != 0:
+                    _logger.info('%s, discard %d packages', str(self), left)
+                    self._to_send.clear()
+                self._shutdown()
+                break
             try:
                 sent = self._send(data, addr)
                 sent_bytes += sent
@@ -113,120 +193,179 @@ class NonBlocking(object):
                     _logger.error('%s, send(%d): %s',
                                   str(self), msg.errno, msg.strerror)
                     self._error = True
-                    self._close_again()
+                    self._do_close()
+                ready_to_send = False
                 break
 
-        self._to_send_bytes -= sent_bytes
-        _logger.debug("%s, sent %d bytes, remain %d bytes", str(self), sent_bytes, self._to_send_bytes)
-        if sent_bytes > 0 and self._onSent:
-            try:
-                self._onSent(self, sent_bytes, self._to_send_bytes)
-            except Exception as e:
-                _logger.error('_onSent: %s', e)
-                self._error = True
-                self._close_again()
+        if self._error is False:
+            if ready_to_send:
+                if self._on_ready_to_send:
+                    try:
+                        self._on_ready_to_send(self)
+                    except Exception as ex:
+                        _logger.error('_on_ready_to_send: %s', str(ex))
+                        if _logger.level <= logging.DEBUG:
+                            _logger.error('%s', traceback.format_exc())
+                        self._error = True
+                        self._do_close()
+            else:
+                if self._on_send_buffer_full:
+                    try:
+                        self._on_send_buffer_full(self)
+                    except Exception as ex:
+                        _logger.error('_on_send_buffer_full: %s', str(ex))
+                        if _logger.level <= logging.DEBUG:
+                            _logger.error('%s', traceback.format_exc())
+                        self._error = True
+                        self._do_close()
+
+        _logger.debug("%s, sent %d bytes", str(self), sent_bytes)
 
         if len(self._to_send) == 0:
-            assert(self._to_send_bytes == 0)
-            Event.delEvent(self._wev)
-            if self._cev is not None:
-                self._close_again()
+            self._stop_sending()
+        elif self._error is False:
+            self._start_sending()
 
     def send(self, data, addr=None):
-        _logger.debug('send')
-        if self._cev is not None:
+        _logger.debug('%s, send', str(self))
+        if self._closed:
             return
 
-        if addr is not None:
-            _logger.debug('%s, sending %d bytes to %s:%d', str(self), len(data), *addr)
-        else:
-            _logger.debug('%s, sending %d bytes', str(self), len(data))
-
+        to_send = data
         try:
             for encoder in self._encoders:
-                data = encoder(data)
+                to_send = encoder(to_send)
         except Exception as ex:
             _logger.error('failed to encode %d bytes: %s', len(data), str(ex))
             raise ex
 
-        self._to_send.append((data, addr))
-        self._to_send_bytes += len(data)
-        self.refresh_timeout()
+        self._to_send.append((to_send, addr))
 
-        if self._connected and not Event.isEventSet(self._wev):
-            Event.addEvent(self._wev)
+        if addr is not None:
+            _logger.debug('%s, sending %d(%d) bytes to %s:%d', str(self), len(to_send), len(data), *addr)
+        else:
+            _logger.debug('%s, sending %d(%d) bytes', str(self), len(to_send), len(data))
 
-    def pending_bytes(self):
-        return self._to_send_bytes
+        if self._connected:
+            self._start_sending()
 
-    class _RecvCBException(Exception):
-        pass
+    def is_ready_to_send(self):
+        if self._closed or not self._connected:
+            return False
 
-    def _decode(self, depth, data, addr):
-        decoder, remain = self._decoders[depth]
-        remain[0] += data
-
-        while len(remain[0]) > 0:
-            out, processed_bytes = decoder(remain[0])
-            assert(processed_bytes >= 0)
-            if processed_bytes == 0:
-                break
-            if depth == len(self._decoders) - 1:
-                try:
-                    if out is not None and len(out) > 0:
-                        self._on_received(self, out, addr)
-                except Exception as e:
-                    _logger.error('_decode: %s', e)
-                    _logger.error('%s', traceback.format_exc())
-                    self._error = True
-                    self._close_again()
-                    raise self._RecvCBException(e)
-            else:
-                self._decode(depth + 1, out, addr)
-            remain[0] = remain[0][processed_bytes:]
+        return Event.isEventSet(self._wev)
 
     def _recv(self, size):
         raise NotImplemented
 
+    def _decode_single_depth(self, depth, data):
+        # _logger.debug('%s, _decode_single_depth', str(self))
+        context = self._decoders[depth]
+        if len(context.remain) > 0:
+            data = context.remain + data
+        total_consumed = []
+        total_processed = 0
+        while True:
+            consumed, processed = context.handler(data[total_processed:])
+            if processed == 0:
+                break
+            total_consumed.append(consumed)
+            total_processed += processed
+        if total_processed < len(data):
+            context.remain = data[total_processed:]
+        else:
+            context.remain = ''
+        return total_consumed, total_processed
+
+    def _decode(self, data):
+        # _logger.debug('%s, _decode', str(self))
+        if len(self._decoders) == 0:
+            return [data], len(data)
+
+        total_consumed = []
+        total_processed = 0
+        while True:
+            loop_processed = 0
+            to_consume = data[total_processed:]
+            for depth in range(len(self._decoders)):
+                consumed, processed = self._decode_single_depth(depth, to_consume)
+                if processed == 0:
+                    break
+                if depth == 0:
+                    total_processed += processed
+                    loop_processed += processed
+                if depth == len(self._decoders) - 1:
+                    total_consumed.extend(consumed)
+                to_consume = reduce(lambda l, r: l + r, consumed, '')
+            if loop_processed == 0:
+                break
+        return total_consumed, total_processed
+
     def _on_receive(self):
-        _logger.debug('_on_receive')
+        _logger.debug('%s, _on_receive', str(self))
+        buff_size = 2 ** 16
         while True:
             try:
-                recv, addr = self._recv(2 ** 16 - 512)
+                recv, addr = self._recv(buff_size)
                 if len(recv) == 0:
-                    self.close()
+                    self._receive_fin()
                     return
                 _logger.debug("%s, received %d bytes", str(self), len(recv))
-                self.refresh_timeout()
             except self._errorType as msg:
                 if msg.errno != errno.EAGAIN and msg.errno != errno.EINPROGRESS:
                     _logger.error('%s, recv occurs error(%d): %s',
                                   str(self), msg.errno, msg.strerror)
                     self._error = True
-                    self._close_again()
+                    self._do_close()
                 return
 
-            try:
-                if self._decodeError:
-                    self._onDecodeError(self, recv)
-                else:
-                    self._decode(0, recv, addr)
-                self.refresh_timeout()
-            except self._RecvCBException:
-                pass
-            except Exception as ex:
-                _logger.error('decode: %s', str(ex))
-                if self._onDecodeError is not None:
-                    try:
+            if len(self._remain) > 0:
+                recv = self._remain + recv
+
+            if self._decodeError:
+                consumed, processed = [recv], len(recv)
+            else:
+                try:
+                    consumed, processed = self._decode(recv)
+                except Exception as ex:
+                    _logger.error('decode error: %s', str(ex))
+                    if _logger.level <= logging.DEBUG:
+                        _logger.error('%s', traceback.format_exc())
+                    if self._onDecodeError is not None:
                         self._decodeError = True
-                        self._onDecodeError(self, recv)
-                    except Exception as ex:
-                        _logger.error("_onDecodeError: %s", str(ex))
+                    else:
                         self._error = True
-                        self._close_again()
+                        self._do_close()
+                        return
+                    consumed, processed = [recv], len(recv)
+
+            if processed < len(recv):
+                self._remain = recv[processed:]
+            else:
+                self._remain = ''
+
+            stop = False
+            try:
+                for data in consumed:
+                    if self._decodeError:
+                        ret = self._onDecodeError(self, data)
+                    else:
+                        ret = self._on_received(self, data, addr)
+                    if not ret:
+                        stop = True
+            except Exception as ex:
+                if self._decodeError:
+                    _logger.error('_onDecodeError error: %s', str(ex))
                 else:
-                    self._error = True
-                    self._close_again()
+                    _logger.error('_on_received error: %s', str(ex))
+                if _logger.level <= logging.DEBUG:
+                    _logger.error('%s', traceback.format_exc())
+                self._error = True
+                self._do_close()
+                return
+
+            if stop:
+                self.stop_receiving()
 
             if not Event.isEventSet(self._rev):
                 break
@@ -234,104 +373,49 @@ class NonBlocking(object):
     def _close(self):
         raise NotImplemented
 
+    def is_closed(self):
+        return self._closed
+
     def _on_close(self):
-        _logger.debug('_on_close')
-        _logger.debug('%s, closed', str(self))
+        _logger.debug('%s, _on_close', str(self))
 
-        Event.delEvent(self._wev)
-
-        assert(self._timeoutEv is None)
+        assert(not Event.isEventSet(self._wev))
         assert(not Event.isEventSet(self._rev))
 
         self._close()
         self._connected = False
-        if self._onClosed is not None:
+        self._closed = True
+        if self._on_closed is not None:
             try:
-                self._onClosed(self)
+                self._on_closed(self)
             except Exception as ex:
-                _logger.error('_onClosed: %s', ex)
+                _logger.error('_on_closed: %s', ex)
+                if _logger.level <= logging.DEBUG:
+                    _logger.error('%s', traceback.format_exc())
 
-    def _close_again(self):
-        _logger.debug('_close_again')
-        if self._cev is not None:
-            self._cev.del_timer()
-            self._cev = None
-        self.close()
+    def _shutdown(self):
+        _logger.debug('%s, _shutdown', str(self))
+        if self._closed or self._fin_sent:
+            return
+        if len(self._to_send) == 0:
+            if self._fin_received:
+                self._stop_sending()
+                self._do_close()
+            else:
+                self._start_sending()
+                self._send_fin()
+                self._fin_sent = True
+        else:
+            _logger.debug('delay shutdown')
+            # append poison
+            if self._fin_appended is False:
+                self._to_send.append((None, None))
+                self._fin_appended = True
+
+    def shutdown(self):
+        _logger.debug('%s, shutdown', str(self))
+        self._shutdown()
 
     def close(self):
-        _logger.debug('close')
-        if self._cev is not None:
-            return
-        _logger.debug('%s, closing', str(self))
-
-        self.remove_timeout()
-
-        for name in list(self._timers.keys()):
-            self.del_timer(name)
-
-        timeout = 0
-        if not self._error and self._connected and len(self._to_send) > 0:
-            timeout = 60000
-
-        if timeout == 0:
-            Event.delEvent(self._wev)
-
-        Event.delEvent(self._rev)
-        self._cev = Event.add_timer(timeout)
-        self._cev.set_handler(lambda ev: self._on_close())
-
-    def _on_timeout(self):
-        _logger.debug('_on_timeout')
-        self.close()
-
-    def refresh_timeout(self):
-        _logger.debug('refresh_timeout')
-        if self._timeoutEv is not None:
-            self.set_timeout(self._timeout)
-
-    def set_timeout(self, timeout):
-        _logger.debug('set_timeout')
-        if self._cev is not None:
-            return
-
-        if self._timeoutEv is not None:
-            self.remove_timeout()
-
-        self._timeout = timeout
-        self._timeoutEv = Event.add_timer(self._timeout)
-        self._timeoutEv.set_handler(lambda ev: self._on_timeout())
-
-    def remove_timeout(self):
-        _logger.debug('remove_timeout')
-        if self._timeoutEv is not None:
-            self._timeoutEv.del_timer()
-            self._timeoutEv = None
-
-    def _gen_on_timer(self, name, handler):
-        def on_timer(_):
-            if name not in self._timers:
-                return
-            del self._timers[name]
-            try:
-                handler(self)
-            except Exception as ex:
-                _logger.error('timer handler exception: ' + str(ex))
-
-        return on_timer
-
-    def add_timer(self, name, timer, handler):
-        _logger.debug('add_timer: %s', name)
-        if self._cev is not None:
-            return
-
-        if name in self._timers:
-            raise Exception('timer: ' + name + ' already exists')
-
-        timer_ev = Event.add_timer(timer)
-        timer_ev.set_handler(self._gen_on_timer(name, handler))
-        self._timers[name] = timer_ev
-
-    def del_timer(self, name):
-        _logger.debug('del_timer: %s', name)
-        self._timers[name].del_timer()
-        del self._timers[name]
+        _logger.debug('%s, close', str(self))
+        self._shutdown()

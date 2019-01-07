@@ -1,12 +1,13 @@
 import select
 import time
 import os
+import traceback
 from event import Event
 
 import logging
 import loglevel
 _logger = loglevel.get_logger('kqueue')
-_logger.setLevel(logging.DEBUG)
+_logger.setLevel(loglevel.DEFAULT_LEVEL)
 
 
 class Kqueue:
@@ -25,7 +26,6 @@ class Kqueue:
 
     def __init__(self):
         self._fd = select.kqueue()
-        self._change_list = []
         self._registered_read = {}
         self._registered_write = {}
 
@@ -41,8 +41,7 @@ class Kqueue:
             assert(fd not in self._registered_read)
             self._registered_read[fd] = event
             filter_ = select.KQ_FILTER_READ
-
-        self._change_list.append(select.kevent(fd, filter=filter_, flags=select.KQ_EV_ADD))
+        self._fd.control([select.kevent(fd, filter=filter_, flags=select.KQ_EV_ADD)], 0, 0)
 
     def deregister(self, event):
         fd = event.get_fd()
@@ -58,7 +57,6 @@ class Kqueue:
                 return
             del self._registered_read[fd]
             filter_ = select.KQ_FILTER_READ
-
         self._fd.control([select.kevent(fd, filter=filter_, flags=select.KQ_EV_DELETE)], 0, 0)
 
     def is_set(self, event):
@@ -70,10 +68,10 @@ class Kqueue:
 
     def _close_fd(self, fd):
         if fd in self._registered_read:
-            self._change_list.append(select.kevent(fd, filter=select.KQ_FILTER_WRITE, flags=select.KQ_EV_DELETE))
+            self._fd.control([select.kevent(fd, filter=select.KQ_FILTER_WRITE, flags=select.KQ_EV_DELETE)], 0, 0)
             del self._registered_read[fd]
         if fd in self._registered_write:
-            self._change_list.append(select.kevent(fd, filter=select.KQ_FILTER_READ, flags=select.KQ_EV_DELETE))
+            self._fd.control([select.kevent(fd, filter=select.KQ_FILTER_READ, flags=select.KQ_EV_DELETE)], 0, 0)
             del self._registered_write[fd]
         try:
             os.close(fd)
@@ -82,7 +80,7 @@ class Kqueue:
 
     def process_events(self, timeout):
         ready = []
-        ready_list = self._fd.control(self._change_list, Kqueue.KQUEUE_MAX_EVENTS, None if timeout < 0 else timeout)
+        ready_list = self._fd.control([], Kqueue.KQUEUE_MAX_EVENTS, None if timeout < 0 else timeout)
         for k_event in ready_list:
             fd = k_event.ident
             filter_ = k_event.filter
@@ -99,7 +97,6 @@ class Kqueue:
                 if handled is False:
                     _logger.debug('%s not handled', str(k_event))
                 assert(handled is True)
-        self._change_list = []
 
         for event in ready:
             try:
@@ -109,7 +106,6 @@ class Kqueue:
                 _logger.warning('event handler exception: %s', str(ex))
                 self._close_fd(event.get_fd())
                 if _logger.level <= logging.DEBUG:
-                    import traceback
                     traceback.print_exc()
 
         current_time = time.time()

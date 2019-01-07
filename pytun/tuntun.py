@@ -12,21 +12,24 @@ from tunnel import Tunnel
 from dns import DNSRecord
 from dns import QTYPE
 from packet import Packet
-from delegation import Delegation
 
+import logging
 import loglevel
 _logger = loglevel.get_logger('tuntun')
+_logger.setLevel(loglevel.DEFAULT_LEVEL)
 
 
 def ip_string_to_long(ip):
     return struct.unpack('!I', socket.inet_pton(socket.AF_INET, ip))[0]
 
 
+TUNNEL_SIZE = 64
 FAST_DNS_SERVER = ip_string_to_long('119.29.29.29')
 CLEAN_DNS_SERVER = ip_string_to_long('8.8.8.8')
 TEST_DNS_SERVER = ip_string_to_long('35.201.154.22')
 
 
+global_proxy = False
 poisoned_domain = set()
 blocked_domain = set()
 blocked_address = set()
@@ -38,22 +41,24 @@ modified_query = {}
 def restore_blocked_address():
     try:
         fp = open('blocked_ip.txt', 'rb')
-        bytes = fp.read()
-        for i in range(0, len(bytes), 4):
-            blocked_address.add(struct.unpack('!I', bytes[i : i + 4])[0])
-        _logger.info('Update %d blocked ips', len(bytes) / 4)
+        content = fp.read()
+        for i in range(0, len(content), 4):
+            blocked_address.add(struct.unpack('!I', content[i: i + 4])[0])
+        _logger.info('Update %d blocked ips', len(content) / 4)
         fp.close()
     except IOError as e:
         _logger.warning("Failed to open blocked_ip.txt: %s", str(e))
         return False
+
+
 restore_blocked_address()
 
 
 def update_blocked_address(address):
     blocked_address.update(address)
-    current = time.time()
+    now = time.time()
     global blocked_address_last_sync
-    if current - blocked_address_last_sync > 60:
+    if now - blocked_address_last_sync > 60:
         try:
             fp = open('blocked_ip.txt', 'wb')
         except IOError as e:
@@ -63,7 +68,7 @@ def update_blocked_address(address):
             fp.write(struct.pack('!I', ip))
         fp.close()
         _logger.info("Synced %d blocked ip", len(blocked_address))
-        blocked_address_last_sync = current
+        blocked_address_last_sync = now
 
 
 def update_blocked_domain():
@@ -236,23 +241,57 @@ def test_domain_poisoned(tun, packet):
     tun.send(copied.get_packet())
 
 
+key_to_tunnels = {}
+
+
+def is_through_tunnel(packet):
+    if global_proxy:
+        return True, False
+
+    through_tunnel = False
+    dns_query = False
+
+    domain_list, id_ = try_parse_dns_query(packet)
+    if domain_list is not None:
+        dns_query = True
+        for domain in domain_list:
+            through_tunnel = is_domain_blocked(domain)
+            if through_tunnel:
+                break
+        if through_tunnel:
+            _logger.info("query: %s through tunnel", ', '.join(domain_list))
+            change_to_dns_server(packet, id_, CLEAN_DNS_SERVER)
+        else:
+            _logger.info("query: %s through directly", ', '.join(domain_list))
+            change_to_dns_server(packet, id_, FAST_DNS_SERVER)
+
+    dst_ip = packet.get_raw_destination_ip()
+    if not through_tunnel:
+        if dst_ip in blocked_address:
+            _logger.debug('address: %s sent via tunnel',
+                          socket.inet_ntop(socket.AF_INET, struct.pack('!I', dst_ip)))
+            through_tunnel = True
+
+    if not through_tunnel and not dns_query and dst_ip not in normal_address:
+        _logger.info('unknown address: %s:%d sent directly',
+                     socket.inet_ntop(socket.AF_INET, struct.pack('!I', dst_ip)),
+                     packet.get_destination_port())
+        through_tunnel = False
+
+    return through_tunnel, dns_query
+
+
 def gen_on_client_side_received(tundev, from_, via, to):
 
     from_addr = ip_string_to_long(from_[0])
 
-    def on_tunnel_received(self, _, data):
+    def on_tunnel_received(_, __, data):
         packet = Packet(data)
         addr_list, id_, _ = try_parse_dns_result(packet)
         if addr_list is not None:
             update_blocked_address(addr_list)
             try_restore_dns(packet, id_)
-        self.send(packet.get_packet())
-
-    def on_tunnel_closed(_):
-        pass
-
-    tundev.on_tunnel_received = on_tunnel_received
-    tundev.on_tunnel_closed = on_tunnel_closed
+        tundev.send(packet.get_packet())
 
     def connect_side_multiplex(tun_device, _, packet):
         if need_restore(from_addr, packet):
@@ -265,63 +304,35 @@ def gen_on_client_side_received(tundev, from_, via, to):
                 if packet.get_raw_source_ip() == TEST_DNS_SERVER:
                     _logger.error('POISONED DOMAIN: %s', domain)
                     update_poisoned_domain(domain)
-                    return
+                    return True
                 else:
                     normal_address.update(addr_list)
                     try_restore_dns(packet, id_)
             tun_device.send(packet.get_packet())
-            return
+            return True
 
-        through_tunnel = False
-        dns_query = False
-
-        domain_list, id_ = try_parse_dns_query(packet)
-        if domain_list is not None:
-            dns_query = True
-            for domain in domain_list:
-                through_tunnel = is_domain_blocked(domain)
-                if through_tunnel:
-                    break
-            if through_tunnel:
-                _logger.info("query: %s through tunnel", ', '.join(domain_list))
-                change_to_dns_server(packet, id_, CLEAN_DNS_SERVER)
-            else:
-                _logger.info("query: %s through directly", ', '.join(domain_list))
-                change_to_dns_server(packet, id_, FAST_DNS_SERVER)
+        through_tunnel, dns_query = is_through_tunnel(packet)
+        if not through_tunnel:
+            if dns_query is True:
                 test_domain_poisoned(tun_device, packet)
-
-        dst_ip = packet.get_raw_destination_ip()
-        if not through_tunnel:
-            if dst_ip in blocked_address:
-                _logger.debug('address: %s sent via tunnel',
-                              socket.inet_ntop(socket.AF_INET, struct.pack('!I', dst_ip)))
-                through_tunnel = True
-
-        if not through_tunnel and not dns_query and dst_ip not in normal_address:
-            _logger.info('unknown address: %s:%d sent directly',
-                         socket.inet_ntop(socket.AF_INET, struct.pack('!I', dst_ip)),
-                         packet.get_destination_port())
-            through_tunnel = False
-
-        if not through_tunnel:
             change_src(packet)
             tun_device.send(packet.get_packet())
-            return
+            return True
 
         id_ = address2uuid(to[0], to[1], packet.get_raw_source_ip(), packet.get_source_port())
-        tunnel = Delegation.get_tunnel(id_)
-        if tunnel is None:
+        key = id_.int % TUNNEL_SIZE
+        tunnel = None
+        if key in key_to_tunnels:
+            tunnel = key_to_tunnels[key]
+        if tunnel is None or tunnel.is_closed():
             tunnel = Tunnel(connect_to=via)
-            tunnel.set_on_payload(Delegation.on_payload)
-            tunnel.set_on_closed(Delegation.on_closed)
-            tunnel.set_on_buffer_high(Delegation.set_on_buffer_high)
-            tunnel.set_on_buffer_low(Delegation.set_on_buffer_low)
+            tunnel.set_on_payload(on_tunnel_received)
             tunnel.initialize()
-        if Delegation.query_endpoint(id_) is None:
-            Delegation.register(id_, tunnel, tun_device)
+            key_to_tunnels[key] = tunnel
         # if proto == 'tcp':
         #     data = data * 2
         tunnel.send_tun_initial_data(id_, packet.get_packet())
+        return True
 
     return connect_side_multiplex
 
@@ -335,11 +346,15 @@ def on_server_side_initialized(tunnel, id_, data):
 
     def on_received(_, data_, packet):
         id__ = address2uuid(tun_addr, prefix, packet.get_raw_destination_ip(), packet.get_destination_port())
-        tunnel_ = Delegation.get_tunnel(id__)
+        key_ = id__.int % TUNNEL_SIZE
+        tunnel_ = None
+        if key_ in key_to_tunnels:
+            tunnel_ = key_to_tunnels[key_]
         if tunnel_ is not None:
             tunnel_.send_payload(id__, data_)
         else:
             _logger.warning('unknown dst %s:%d', packet.get_destination_ip(), packet.get_destination_port())
+        return True
 
     tun_addr_prefix = tun_addr + '/' + str(prefix)
     if tun_addr_prefix in to2tun:
@@ -348,9 +363,9 @@ def on_server_side_initialized(tunnel, id_, data):
         tun_device = TunDevice('tun', tun_addr, prefix)
         to2tun[tun_addr_prefix] = tun_device
         tun_device.set_on_received(on_received)
-        tun_device.begin_receiving()
-    if Delegation.query_endpoint(id_) is None:
-        Delegation.register(id_, tunnel, tun_device)
+        tun_device.start_receiving()
+    key = id_.int % TUNNEL_SIZE
+    key_to_tunnels[key] = tunnel
     tun_device.send(data)
 
 

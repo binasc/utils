@@ -10,9 +10,6 @@ import tcptun
 import udptun
 import tuntun
 from tunnel import Tunnel
-from delegation import Delegation
-
-import tunnel
 
 import loglevel
 _logger = loglevel.get_logger('main')
@@ -55,11 +52,7 @@ def acceptor_on_closed(_self):
 
 
 def server_side_on_accepted(sock, _):
-    tunnel = Tunnel(sock)
-    tunnel.set_on_payload(Delegation.on_payload)
-    tunnel.set_on_closed(Delegation.on_closed)
-    tunnel.set_on_buffer_high(Delegation.set_on_buffer_high)
-    tunnel.set_on_buffer_low(Delegation.set_on_buffer_low)
+    tunnel = Tunnel(connection=sock)
     tunnel.initialize()
 
 
@@ -105,14 +98,12 @@ if __name__ == '__main__':
         print(_helpText)
         sys.exit(0)
 
+    Tunnel.set_tcp_fin_received_handler(tcptun.on_stream_fin_received)
     Tunnel.set_tcp_closed_handler(tcptun.on_stream_closed)
     Tunnel.set_udp_closed_handler(udptun.on_dgram_closed)
     if accept_mode:
         Tunnel.set_tcp_initial_handler(tcptun.on_server_side_initialized)
         Tunnel.set_udp_initial_handler(udptun.on_server_side_initialized)
-        Delegation.set_type(Delegation.ACCEPT)
-    else:
-        Delegation.set_type(Delegation.CONNECT)
 
     for addr, port, type_, arg in server_list:
         if accept_mode:
@@ -136,12 +127,12 @@ if __name__ == '__main__':
                 receiver.set_on_closed(acceptor_on_closed)
                 receiver.on_tunnel_received = udptun.on_tunnel_received
                 receiver.on_tunnel_closed = udptun.on_tunnel_closed
-                receiver.begin_receiving()
+                receiver.start_receiving()
             elif type_ == 'tun':
                 # port as cidr prefix
                 receiver = TunDevice('tun', addr, port)
                 receiver.set_on_received(tuntun.gen_on_client_side_received(receiver, (addr, port), via, to))
                 receiver.set_on_closed(acceptor_on_closed)
-                receiver.begin_receiving()
+                receiver.start_receiving()
 
     event.Event.process_loop()

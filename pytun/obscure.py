@@ -26,10 +26,10 @@ def pack_data(data):
 def unpack_data(data):
     length = len(data)
     if length < 2:
-        return '', 0
+        return None, 0
     size = struct.unpack('!H', data[: 2])[0]
     if length < 2 + size:
-        return '', 0
+        return None, 0
     return data[2: 2 + size], 2 + size
 
 

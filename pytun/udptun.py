@@ -4,7 +4,6 @@ import struct
 import uuid
 from dgram import Dgram
 from tunnel import Tunnel
-from delegation import Delegation
 
 import logging
 import loglevel
@@ -48,8 +47,8 @@ def gen_on_client_side_received(via, to):
             tunnel = Tunnel(connect_to=via)
             tunnel.set_on_payload(Delegation.on_payload)
             tunnel.set_on_closed(Delegation.on_closed)
-            tunnel.set_on_buffer_high(Delegation.set_on_buffer_high)
-            tunnel.set_on_buffer_low(Delegation.set_on_buffer_low)
+            tunnel.set_on_ready_to_send(Delegation.set_on_ready_to_send)
+            tunnel.set_on_send_buffer_full(Delegation.set_on_send_buffer_full)
             tunnel.initialize()
         if Delegation.query_endpoint(id_) is None:
             tunnel.send_udp_initial_data(id_, initial_data)
@@ -84,7 +83,7 @@ def on_server_side_initialized(tunnel, id_, initial_data):
     endpoint.set_on_closed(on_closed)
     endpoint.on_tunnel_received = on_tunnel_received
     endpoint.on_tunnel_closed = on_tunnel_closed
-    endpoint.begin_receiving()
+    endpoint.start_receiving()
     # 10 min
     endpoint.set_timeout(10 * 60 * 1000)
 

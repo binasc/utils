@@ -1,6 +1,7 @@
 import select
 import time
 import os
+import traceback
 from event import Event
 
 import logging
@@ -127,7 +128,6 @@ class Epoll:
                 _logger.warning('event handler exception: %s', str(ex))
                 self._close_fd(event.get_fd())
                 if _logger.level <= logging.DEBUG:
-                    import traceback
                     traceback.print_exc()
 
         current_time = time.time()

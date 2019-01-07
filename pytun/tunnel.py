@@ -3,21 +3,23 @@ import obscure
 import struct
 import uuid
 
+import logging
 import loglevel
-_logger = loglevel.get_logger('tunnel')
+_logger = loglevel.get_logger('tunnel', loglevel.DEFAULT_LEVEL)
 
 
 BUFF_SIZE = 1024 ** 2
 UNKNOWN_CONN_ADDR = "127.0.0.1"
-UNKNOWN_CONN_PORT = 8080
+UNKNOWN_CONN_PORT = 8000
 
 
 class Tunnel(object):
     _TCP_INITIAL_DATA = 0
-    _TCP_CLOSED_DATA = 1
-    _UDP_INITIAL_DATA = 2
-    _UDP_CLOSED_DATA = 3
-    _TUN_INITIAL_DATA = 4
+    _TCP_FIN_DATA = 1
+    _TCP_CLOSED_DATA = 2
+    _UDP_INITIAL_DATA = 3
+    _UDP_CLOSED_DATA = 4
+    _TUN_INITIAL_DATA = 5
     _PAYLOAD = 10
 
     _static_handlers = {}
@@ -25,6 +27,10 @@ class Tunnel(object):
     @staticmethod
     def set_tcp_initial_handler(handler):
         Tunnel._static_handlers[Tunnel._TCP_INITIAL_DATA] = handler
+
+    @staticmethod
+    def set_tcp_fin_received_handler(handler):
+        Tunnel._static_handlers[Tunnel._TCP_FIN_DATA] = handler
 
     @staticmethod
     def set_tcp_closed_handler(handler):
@@ -52,8 +58,9 @@ class Tunnel(object):
         self._handlers.update({
             Tunnel._PAYLOAD: lambda _, id_, data: self._on_payload(self, id_, data)
         })
-        self._on_buffer_low = None
-        self._on_buffer_high = None
+        self._on_ready_to_send = None
+        self._on_send_buffer_full = None
+        self.connections = {}
 
     def __hash__(self):
         return hash(self._stream)
@@ -68,28 +75,31 @@ class Tunnel(object):
 
     def initialize(self):
         if self._stream is None:
-            self._stream = Stream()
+            self._stream = Stream(prefix='TUNNEL')
+        else:
+            self._stream.set_prefix('TUNNEL')
 
         self._stream.set_buffer_size(BUFF_SIZE)
         self._stream.set_tcp_no_delay()
-        #try:
-        #    self._stream.set_cong_algorithm('hybla')
-        #except Exception as ex:
-        #    _logger.warning('set_cong_algorithm failed: %s' % str(ex))
+        # try:
+        #     self._stream.set_cong_algorithm('hybla')
+        # except Exception as ex:
+        #     _logger.warning('set_cong_algorithm failed: %s' % str(ex))
         self._stream.append_send_handler(obscure.pack_data)
         self._stream.append_send_handler(obscure.random_padding)
         # self._stream.append_send_handler(obscure.gen_aes_encrypt())
         self._stream.append_send_handler(obscure.gen_xor_encrypt())
-        # self._stream.append_send_handler(obscure.base64_encode)
+        self._stream.append_send_handler(obscure.base64_encode)
         self._stream.append_send_handler(obscure.gen_http_encode(self._connect_to is not None))
         self._stream.append_receive_handler(obscure.gen_http_decode(self._connect_to is not None))
-        # self._stream.append_receive_handler(obscure.base64_decode)
+        self._stream.append_receive_handler(obscure.base64_decode)
         self._stream.append_receive_handler(obscure.gen_xor_decrypt())
         # self._stream.append_receive_handler(obscure.gen_aes_decrypt())
         self._stream.append_receive_handler(obscure.unpad_random)
         self._stream.append_receive_handler(obscure.unpack_data)
 
-        self._stream.set_on_sent(lambda _, sent, remain: self._on_sent(sent, remain))
+        self._stream.set_on_ready_to_send(lambda _: self._on_tunnel_ready_to_send())
+        self._stream.set_on_send_buffer_full(lambda _: self._on_tunnel_send_buffer_full())
         self._stream.set_on_received(lambda _, data, addr: self._on_received(data, addr))
         self._stream.set_on_closed(lambda _: self._on_closed())
         self._stream.set_on_decode_error(lambda _, received: self._on_decode_error(received))
@@ -97,24 +107,48 @@ class Tunnel(object):
         if self._connect_to is not None:
             self._stream.connect(*self._connect_to)
         else:
-            self._stream.begin_receiving()
+            self._stream.start_receiving()
+
+    def register(self, key, conn):
+        _logger.debug('%s, register: %s(%s)', str(self), str(key), str(conn))
+        assert(key not in self.connections)
+        self.connections[key] = conn
+
+    def deregister(self, key):
+        _logger.debug('%s, deregister(%s)', str(self), str(key))
+        assert(key in self.connections)
+        del self.connections[key]
+
+    def get_connection(self, key):
+        if key in self.connections:
+            return self.connections[key]
+        else:
+            _logger.warning('no such connection: %s', str(key))
+            return None
+
+    def clear_connections(self):
+        _logger.debug('%s, clear_connections (%d)', str(self), len(self.connections))
+        self.connections.clear()
+
+    def is_ready_to_send(self):
+        return self._stream.is_ready_to_send()
 
     def _send_content(self, type_, id_, content):
         to_send = struct.pack('!HI', type_, len(content)) + id_.get_bytes() + content
         self._stream.send(to_send)
-        if self._stream.pending_bytes() >= BUFF_SIZE:
-            if self._on_buffer_high is not None:
-                self._on_buffer_high(self)
 
-    def _on_sent(self, _sent, remain):
-        _logger.debug("tunnel %s sent %d bytes" % (str(self), _sent))
-        if remain < BUFF_SIZE:
-            if self._on_buffer_low is not None:
-                self._on_buffer_low(self)
+    def _on_tunnel_ready_to_send(self):
+        if self._on_ready_to_send is not None:
+            self._on_ready_to_send(self)
+
+    def _on_tunnel_send_buffer_full(self):
+        if self._on_send_buffer_full is not None:
+            self._on_send_buffer_full(self)
 
     def _on_received(self, data, _addr):
         _logger.debug("tunnel %s received %d bytes" % (str(self), len(data)))
         if len(data) < 6 + 16:
+            logging.error('bad tunnel data 0')
             raise Exception('corrupted data')
 
         type_, content_length = struct.unpack('!HI', data[: 6])
@@ -124,12 +158,18 @@ class Tunnel(object):
             _logger.warning("tunnel message type %d can not be handled", type_)
 
         if len(data) - 6 - 16 != content_length:
+            logging.error('bad tunnel data 1')
             raise Exception('corrupted data')
 
         self._handlers[type_](self, id_, data[6 + 16:])
 
+        return True
+
     def send_tcp_initial_data(self, id_, data):
         self._send_content(Tunnel._TCP_INITIAL_DATA, id_, data)
+
+    def send_tcp_fin_data(self, id_, data=''):
+        self._send_content(Tunnel._TCP_FIN_DATA, id_, data)
 
     def send_tcp_closed_data(self, id_, data=''):
         self._send_content(Tunnel._TCP_CLOSED_DATA, id_, data)
@@ -149,11 +189,11 @@ class Tunnel(object):
     def set_on_payload(self, handler):
         self._on_payload = handler
 
-    def set_on_buffer_high(self, handler):
-        self._on_buffer_high = handler
+    def set_on_ready_to_send(self, handler):
+        self._on_ready_to_send = handler
 
-    def set_on_buffer_low(self, handler):
-        self._on_buffer_low = handler
+    def set_on_send_buffer_full(self, handler):
+        self._on_send_buffer_full = handler
 
     def _on_closed(self):
         if self._on_stream_closed is not None:
@@ -165,31 +205,35 @@ class Tunnel(object):
     def close(self):
         self._stream.close()
 
+    def is_closed(self):
+        return self._stream.is_closed()
+
     def _on_decode_error(self, received):
-        # TODO: pay attention to BUFF_SIZE
         self._stream._encoders = []
         backend = Stream()
 
-        def tunnel_sent(_, _sent, remain):
-            if remain <= BUFF_SIZE:
-                backend.begin_receiving()
+        def tunnel_ready_to_send(_):
+            backend.start_receiving()
+
+        def tunnel_send_buffer_full(_):
+            backend.stop_receiving()
 
         def tunnel_received(_, data, _addr):
             backend.send(data)
+            return backend.is_ready_to_send()
 
         def tunnel_closed(_):
             backend.close()
 
         def backend_received(_, data, _addr):
             self._stream.send(data)
-            pending = self._stream.pending_bytes()
-            if pending > BUFF_SIZE:
-                self._stream.stop_receiving()
+            return self._stream.is_ready_to_send()
 
         def backend_closed(_self):
             self._stream.close()
 
-        self._stream.set_on_sent(tunnel_sent)
+        self._stream.set_on_ready_to_send(tunnel_ready_to_send)
+        self._stream.set_on_send_buffer_full(tunnel_send_buffer_full)
         self._stream.set_on_received(tunnel_received)
         self._stream.set_on_closed(tunnel_closed)
         backend.set_on_received(backend_received)
