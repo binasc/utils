@@ -31,23 +31,27 @@ class TunDevice(NonBlocking):
     @staticmethod
     def _ipv4_decoder(data):
         if len(data) < 20:
-            return '', 0
+            return None, 0
 
         ver_ihl, _, length = struct.unpack('!BBH', data[:4])
-        if len(data) < length:
-            return '', 0
-
         version = (ver_ihl >> 4) & 0x0f
-        if version == 6:
+
+        if version == 4:
+            if len(data) < length:
+                return None, 0
+            else:
+                return data[:length], length
+        elif version == 6:
             if len(data) < 40:
-                return '', 0
+                return None, 0
             length, = struct.unpack('!H', data[4: 6])
             if len(data) < 40 + length:
-                return '', 0
+                return None, 0
             else:
-                return '', 40 + length
+                _logger.warning('v6 packet %d bytes is ignored', 40 + length)
+                return None, 40 + length
 
-        return data[:length], length
+        return None, 0
 
     def __init__(self, prefix, ip, netmask):
         fd = os.open('/dev/net/tun', os.O_RDWR)

@@ -228,7 +228,8 @@ class NonBlocking(object):
 
     def send(self, data, addr=None):
         _logger.debug('%s, send', str(self))
-        if self._closed:
+        if self._fin_sent or self._closed:
+            _logger.warning('%s, already shutdown, discard %d bytes', str(self), len(data))
             return
 
         to_send = data
@@ -269,7 +270,8 @@ class NonBlocking(object):
             consumed, processed = context.handler(data[total_processed:])
             if processed == 0:
                 break
-            total_consumed.append(consumed)
+            if consumed is not None:
+                total_consumed.append(consumed)
             total_processed += processed
         if total_processed < len(data):
             context.remain = data[total_processed:]

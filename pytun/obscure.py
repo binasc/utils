@@ -61,7 +61,7 @@ def unpad_random(data):
     real = ''
     data_length = len(data)
     if data_length < 4:
-        return '', 0
+        return None, 0
     flag, length = struct.unpack('!HH', data[:4])
     length += 1
     if flag % 2 == 1:
@@ -69,7 +69,7 @@ def unpad_random(data):
             real = data[4: 4 + length]
             _logger.debug("body: %d", length)
     if data_length < 4 + length:
-        return '', 0
+        return None, 0
     else:
         return real, 4 + length
 
@@ -106,11 +106,11 @@ def gen_aes_decrypt():
     def aes_decrypt(raw):
         if cipher[0] is None:
             if len(raw) < AES.block_size + AES.block_size:
-                return '', 0
+                return None, 0
             iv = raw[: AES.block_size]
             key = raw[AES.block_size: AES.block_size + AES.block_size]
             cipher[0] = AES.new(key, AES.MODE_CBC, iv)
-            return '', AES.block_size + AES.block_size
+            return None, AES.block_size + AES.block_size
         return unpad_data(cipher[0].decrypt(raw)), len(raw)
 
     return aes_decrypt
@@ -136,9 +136,9 @@ def gen_xor_decrypt():
     def xor_decrypt(raw):
         if cipher[0] is None:
             if len(raw) < AES.block_size:
-                return '', 0
+                return None, 0
             cipher[0] = XOR.new(raw[: AES.block_size])
-            return '', AES.block_size
+            return None, AES.block_size
         return cipher[0].decrypt(raw), len(raw)
 
     return xor_decrypt
