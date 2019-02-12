@@ -12,25 +12,19 @@ random.seed()
 
 
 def pack_data(data):
-    remain = len(data)
-    sent = 0
-    out = ''
-    while remain > 0:
-        to_send = min(remain, 2 ** 16 - 2)
-        out += struct.pack('!H', to_send) + data[sent: sent + to_send]
-        remain -= to_send
-        sent += to_send
-    return out
+    if len(data) > 2 ** 32 - 1:
+        _logger.error('too large packet(%d bytes)', len(data))
+    return struct.pack('!I', len(data)) + data
 
 
 def unpack_data(data):
     length = len(data)
-    if length < 2:
+    if length < 4:
         return None, 0
-    size = struct.unpack('!H', data[: 2])[0]
-    if length < 2 + size:
+    size = struct.unpack('!I', data[: 4])[0]
+    if length < 4 + size:
         return None, 0
-    return data[2: 2 + size], 2 + size
+    return data[4: 4 + size], 4 + size
 
 
 def random_padding(data):
@@ -47,31 +41,30 @@ def random_padding(data):
 
     pad = ''
     if pad_length > 0:
-        pad = struct.pack('!HH', random.randrange(0, 100, 2), pad_length - 1) + chr(random.randint(0, 255)) * pad_length
+        pad = struct.pack('!HI', random.randrange(0, 100, 2), pad_length) + chr(random.randint(0, 255)) * pad_length
 
     _logger.debug("encode len(pad): %d, body: %d", pad_length, data_length)
 
     if random.random() < 0.5:
-        return pad + struct.pack('!HH', random.randrange(1, 100, 2), data_length - 1) + data
+        return pad + struct.pack('!HI', random.randrange(1, 100, 2), data_length) + data
     else:
-        return struct.pack('!HH', random.randrange(1, 100, 2), data_length - 1) + data + pad
+        return struct.pack('!HI', random.randrange(1, 100, 2), data_length) + data + pad
 
 
 def unpad_random(data):
     real = ''
     data_length = len(data)
-    if data_length < 4:
+    if data_length < 6:
         return None, 0
-    flag, length = struct.unpack('!HH', data[:4])
-    length += 1
+    flag, length = struct.unpack('!HI', data[:6])
     if flag % 2 == 1:
-        if data_length >= 4 + length:
-            real = data[4: 4 + length]
+        if data_length >= 6 + length:
+            real = data[6: 6 + length]
             _logger.debug("body: %d", length)
-    if data_length < 4 + length:
+    if data_length < 6 + length:
         return None, 0
     else:
-        return real, 4 + length
+        return real, 6 + length
 
 
 def pad_data(data):

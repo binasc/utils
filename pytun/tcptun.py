@@ -97,7 +97,9 @@ def on_server_side_initialized(tunnel, id_, initial_data):
         tunnel.deregister(self_.uuid)
 
     def on_tunnel_received(_, id__, data):
-        endpoint_ = tunnel.connections[id__]
+        endpoint_ = None
+        if id__ in tunnel.connections:
+            endpoint_ = tunnel.connections[id__]
         if endpoint_ is None:
             _logger.warning('connection: %s has gone, %d bytes data not sent', str(id__), len(data))
         else:
