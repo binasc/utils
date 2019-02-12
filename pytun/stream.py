@@ -59,7 +59,7 @@ class Stream(NonBlocking):
 
     def connect(self, addr, port):
         _logger.debug('connect')
-        if self._cev is not None:
+        if self.is_closed():
             return
 
         self._wev.set_handler(lambda ev: self._check_connected())

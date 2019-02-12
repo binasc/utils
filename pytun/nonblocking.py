@@ -107,7 +107,7 @@ class NonBlocking(object):
 
     def start_receiving(self):
         _logger.debug('%s, start_receiving', str(self))
-        if not self._connected or self._closed or self._fin_received:
+        if not self._connected or self._fin_received or self.is_closed():
             return
         if not Event.isEventSet(self._rev):
             _logger.debug('%s, start_receiving::addEvent', str(self))
@@ -132,6 +132,9 @@ class NonBlocking(object):
         _logger.debug('%s, _receive_fin', str(self))
         self._fin_received = True
         self.stop_receiving()
+        if self._fin_sent:
+            self._stop_sending()
+            self._do_close()
         if self._on_fin_received is not None:
             try:
                 self._on_fin_received(self)
@@ -141,9 +144,7 @@ class NonBlocking(object):
                     _logger.error('%s', traceback.format_exc())
                 self._error = True
                 self._do_close()
-        if self._fin_sent:
-            self._stop_sending()
-            self._do_close()
+                return
 
     def _send_fin(self):
         raise NotImplemented
@@ -194,41 +195,40 @@ class NonBlocking(object):
                                   str(self), msg.errno, msg.strerror)
                     self._error = True
                     self._do_close()
-                ready_to_send = False
-                break
-
-        if self._error is False:
-            if ready_to_send:
-                if self._on_ready_to_send:
-                    try:
-                        self._on_ready_to_send(self)
-                    except Exception as ex:
-                        _logger.error('_on_ready_to_send: %s', str(ex))
-                        if _logger.level <= logging.DEBUG:
-                            _logger.error('%s', traceback.format_exc())
-                        self._error = True
-                        self._do_close()
-            else:
-                if self._on_send_buffer_full:
-                    try:
-                        self._on_send_buffer_full(self)
-                    except Exception as ex:
-                        _logger.error('_on_send_buffer_full: %s', str(ex))
-                        if _logger.level <= logging.DEBUG:
-                            _logger.error('%s', traceback.format_exc())
-                        self._error = True
-                        self._do_close()
+                    return
+                else:
+                    ready_to_send = False
+                    break
 
         _logger.debug("%s, sent %d bytes", str(self), sent_bytes)
 
         if len(self._to_send) == 0:
             self._stop_sending()
-        elif self._error is False:
-            self._start_sending()
+
+        if ready_to_send:
+            if self._on_ready_to_send:
+                try:
+                    self._on_ready_to_send(self)
+                except Exception as ex:
+                    _logger.error('_on_ready_to_send: %s', str(ex))
+                    if _logger.level <= logging.DEBUG:
+                        _logger.error('%s', traceback.format_exc())
+                    self._error = True
+                    self._do_close()
+        else:
+            if self._on_send_buffer_full:
+                try:
+                    self._on_send_buffer_full(self)
+                except Exception as ex:
+                    _logger.error('_on_send_buffer_full: %s', str(ex))
+                    if _logger.level <= logging.DEBUG:
+                        _logger.error('%s', traceback.format_exc())
+                    self._error = True
+                    self._do_close()
 
     def send(self, data, addr=None):
         _logger.debug('%s, send', str(self))
-        if self._fin_sent or self._closed:
+        if self._fin_appended or self._fin_sent or self.is_closed():
             _logger.warning('%s, already shutdown, discard %d bytes', str(self), len(data))
             return
 
@@ -251,7 +251,7 @@ class NonBlocking(object):
             self._start_sending()
 
     def is_ready_to_send(self):
-        if self._closed or not self._connected:
+        if self.is_closed() or not self._connected:
             return False
 
         return Event.isEventSet(self._wev)
@@ -280,7 +280,7 @@ class NonBlocking(object):
         return total_consumed, total_processed
 
     def _decode(self, data):
-        # _logger.debug('%s, _decode', str(self))
+        _logger.debug('%s, _decode', str(self))
         if len(self._decoders) == 0:
             return [data], len(data)
 
@@ -376,7 +376,7 @@ class NonBlocking(object):
         raise NotImplemented
 
     def is_closed(self):
-        return self._closed
+        return self._cev is not None or self._closed
 
     def _on_close(self):
         _logger.debug('%s, _on_close', str(self))
@@ -395,18 +395,24 @@ class NonBlocking(object):
                 if _logger.level <= logging.DEBUG:
                     _logger.error('%s', traceback.format_exc())
 
-    def _shutdown(self):
+    def _shutdown(self, force=False):
         _logger.debug('%s, _shutdown', str(self))
-        if self._closed or self._fin_sent:
+        if self.is_closed() or (self._fin_sent and force is False):
             return
+
+        if force:
+            self._error = True
+            self._do_close()
+            return
+
         if len(self._to_send) == 0:
+            self._fin_sent = True
             if self._fin_received:
                 self._stop_sending()
                 self._do_close()
             else:
                 self._start_sending()
                 self._send_fin()
-                self._fin_sent = True
         else:
             _logger.debug('delay shutdown')
             # append poison
@@ -420,4 +426,4 @@ class NonBlocking(object):
 
     def close(self):
         _logger.debug('%s, close', str(self))
-        self._shutdown()
+        self._shutdown(force=True)

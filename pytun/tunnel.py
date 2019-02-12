@@ -123,7 +123,7 @@ class Tunnel(object):
         if key in self.connections:
             return self.connections[key]
         else:
-            _logger.warning('no such connection: %s', str(key))
+            _logger.debug('no such connection: %s', str(key))
             return None
 
     def clear_connections(self):

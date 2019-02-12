@@ -24,11 +24,11 @@ def gen_on_client_side_accepted(via, to):
             return tunnel.is_ready_to_send()
 
         def on_fin_received(self_):
-            tunnel.send_tcp_fin_data(self_.uuid)
+            if not self_.is_closed():
+                tunnel.send_tcp_fin_data(self_.uuid)
 
         def on_closed(self_):
-            if self_.close_by_tunnel is False:
-                tunnel.send_tcp_closed_data(self_.uuid)
+            tunnel.send_tcp_closed_data(self_.uuid)
             tunnel.deregister(self_.uuid)
 
         def on_tunnel_received(_, id_, data):
@@ -52,7 +52,6 @@ def gen_on_client_side_accepted(via, to):
             tunnel.clear_connections()
 
         endpoint.uuid = uuid.uuid4()
-        endpoint.close_by_tunnel = False
 
         key = endpoint.uuid.int % 64
 
@@ -92,8 +91,7 @@ def on_server_side_initialized(tunnel, id_, initial_data):
         tunnel.send_tcp_fin_data(self_.uuid)
 
     def on_closed(self_):
-        if self_.close_by_tunnel is False:
-            tunnel.send_tcp_closed_data(self_.uuid)
+        tunnel.send_tcp_closed_data(self_.uuid)
         tunnel.deregister(self_.uuid)
 
     def on_tunnel_received(_, id__, data):
@@ -120,7 +118,6 @@ def on_server_side_initialized(tunnel, id_, initial_data):
 
     endpoint = Stream()
     endpoint.uuid = id_
-    endpoint.close_by_tunnel = False
 
     tunnel.register(endpoint.uuid, endpoint)
 
@@ -142,9 +139,8 @@ def on_server_side_initialized(tunnel, id_, initial_data):
 def on_stream_fin_received(tunnel_, id_, _):
     endpoint = tunnel_.get_connection(id_)
     if endpoint is not None:
-        _logger.info("(%s) %s fin received", str(endpoint), str(id_))
+        _logger.debug("(%s) %s fin received", str(endpoint), str(id_))
         endpoint.shutdown()
-        endpoint.fin_by_tunnel = True
     else:
         _logger.warning('no such tcp connection: %s', str(id_))
 
@@ -152,8 +148,5 @@ def on_stream_fin_received(tunnel_, id_, _):
 def on_stream_closed(tunnel_, id_, _):
     endpoint = tunnel_.get_connection(id_)
     if endpoint is not None:
-        _logger.info("close (%s) %s by other side", str(endpoint), str(id_))
+        _logger.debug("(%s) %s closed by other side", str(endpoint), str(id_))
         endpoint.close()
-        endpoint.close_by_tunnel = True
-    else:
-        _logger.warning('no such tcp connection: %s', str(id_))
