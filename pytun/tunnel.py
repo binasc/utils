@@ -1,4 +1,5 @@
 from stream import Stream
+from event import Event
 import obscure
 import struct
 import uuid
@@ -11,6 +12,7 @@ _logger = loglevel.get_logger('tunnel', loglevel.DEFAULT_LEVEL)
 BUFF_SIZE = 1024 ** 2
 UNKNOWN_CONN_ADDR = "127.0.0.1"
 UNKNOWN_CONN_PORT = 8000
+HEARTBEAT_INTERVAL = 60 * 1000
 
 
 class Tunnel(object):
@@ -21,8 +23,11 @@ class Tunnel(object):
     _UDP_CLOSED_DATA = 4
     _TUN_INITIAL_DATA = 5
     _PAYLOAD = 10
+    _HEARTBEAT = 100
 
-    _static_handlers = {}
+    _static_handlers = {
+        _HEARTBEAT: (lambda _, __, ___: None)
+    }
 
     @staticmethod
     def set_tcp_initial_handler(handler):
@@ -60,6 +65,7 @@ class Tunnel(object):
         })
         self._on_ready_to_send = None
         self._on_send_buffer_full = None
+        self._hb_event = None
         self.connections = {}
 
     def __hash__(self):
@@ -72,6 +78,19 @@ class Tunnel(object):
 
     def __str__(self):
         return str(self._stream)
+
+    def _send_heartbeat(self):
+        self._send_content(Tunnel._HEARTBEAT, None, None)
+        self._enable_heartbeat()
+
+    def _enable_heartbeat(self):
+        self._hb_event = Event.add_timer(HEARTBEAT_INTERVAL)
+        self._hb_event.set_handler(lambda ev: self._send_heartbeat())
+
+    def _disable_heartbeat(self):
+        if self._hb_event is not None:
+            self._hb_event.del_timer()
+            self._hb_event = None
 
     def initialize(self):
         if self._stream is None:
@@ -101,6 +120,7 @@ class Tunnel(object):
         self._stream.set_on_ready_to_send(lambda _: self._on_tunnel_ready_to_send())
         self._stream.set_on_send_buffer_full(lambda _: self._on_tunnel_send_buffer_full())
         self._stream.set_on_received(lambda _, data, addr: self._on_received(data, addr))
+        self._stream.set_on_fin_received(lambda _: self._disable_heartbeat())
         self._stream.set_on_closed(lambda _: self._on_closed())
         self._stream.set_on_decode_error(lambda _, received: self._on_decode_error(received))
 
@@ -108,6 +128,7 @@ class Tunnel(object):
             self._stream.connect(*self._connect_to)
         else:
             self._stream.start_receiving()
+        self._enable_heartbeat()
 
     def register(self, key, conn):
         _logger.debug('%s, register: %s(%s)', str(self), str(key), str(conn))
@@ -134,7 +155,10 @@ class Tunnel(object):
         return self._stream.is_ready_to_send()
 
     def _send_content(self, type_, id_, content):
-        to_send = struct.pack('!HI', type_, len(content)) + id_.get_bytes() + content
+        if id_ is None:
+            to_send = struct.pack('!HI', type_, 0) + '\x00' * 16
+        else:
+            to_send = struct.pack('!HI', type_, len(content)) + id_.get_bytes() + content
         self._stream.send(to_send)
 
     def _on_tunnel_ready_to_send(self):
@@ -148,7 +172,6 @@ class Tunnel(object):
     def _on_received(self, data, _addr):
         _logger.debug("tunnel %s received %d bytes" % (str(self), len(data)))
         if len(data) < 6 + 16:
-            logging.error('bad tunnel data 0')
             raise Exception('corrupted data')
 
         type_, content_length = struct.unpack('!HI', data[: 6])
@@ -158,7 +181,6 @@ class Tunnel(object):
             _logger.warning("tunnel message type %d can not be handled", type_)
 
         if len(data) - 6 - 16 != content_length:
-            logging.error('bad tunnel data 1')
             raise Exception('corrupted data')
 
         self._handlers[type_](self, id_, data[6 + 16:])
@@ -196,6 +218,7 @@ class Tunnel(object):
         self._on_send_buffer_full = handler
 
     def _on_closed(self):
+        self._disable_heartbeat()
         if self._on_stream_closed is not None:
             self._on_stream_closed(self)
 
@@ -209,6 +232,7 @@ class Tunnel(object):
         return self._stream.is_closed()
 
     def _on_decode_error(self, received):
+        self._disable_heartbeat()
         self._stream._encoders = []
         backend = Stream()
 
