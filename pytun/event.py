@@ -78,8 +78,7 @@ class Event:
                         event.get_handler()(event)
                     except Exception as ex:
                         _logger.warning("timer handler exception: %s", str(ex))
-                        if _logger.level <= logging.DEBUG:
-                            traceback.print_exc()
+                        traceback.print_exc()
 
     addEvent = None
     delEvent = None

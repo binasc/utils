@@ -235,12 +235,8 @@ class NonBlocking(object):
             return
 
         to_send = data
-        try:
-            for encoder in self._encoders:
-                to_send = encoder(to_send)
-        except Exception as ex:
-            _logger.error('failed to encode %d bytes: %s', len(data), str(ex))
-            raise ex
+        for encoder in self._encoders:
+            to_send = encoder(to_send)
 
         self._to_send.append((to_send, addr))
 

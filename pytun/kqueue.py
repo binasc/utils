@@ -103,10 +103,9 @@ class Kqueue:
                 if self.is_set(event):
                     event.get_handler()(event)
             except Exception as ex:
-                _logger.warning('event handler exception: %s', str(ex))
                 self._close_fd(event.get_fd())
-                if _logger.level <= logging.DEBUG:
-                    traceback.print_exc()
+                _logger.warning('event handler exception: %s', str(ex))
+                traceback.print_exc()
 
         current_time = time.time()
         if current_time - self._last_time > 60.0:
