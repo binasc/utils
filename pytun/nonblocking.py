@@ -170,6 +170,8 @@ class NonBlocking(object):
             self._stop_sending()
             if self._fin_received:
                 self._do_close()
+            else:
+                self.start_receiving()
             return
 
         sent_bytes = 0
