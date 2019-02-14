@@ -22,7 +22,7 @@ def ip_string_to_long(ip):
     return struct.unpack('!I', socket.inet_pton(socket.AF_INET, ip))[0]
 
 
-TUNNEL_SIZE = 64
+TUNNEL_SIZE = 67
 FAST_DNS_SERVER = ip_string_to_long('119.29.29.29')
 CLEAN_DNS_SERVER = ip_string_to_long('8.8.8.8')
 TEST_DNS_SERVER = ip_string_to_long('35.201.154.22')

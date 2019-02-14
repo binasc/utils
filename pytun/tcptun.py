@@ -53,7 +53,7 @@ def gen_on_client_side_accepted(via, to):
 
         endpoint.uuid = uuid.uuid4()
 
-        key = endpoint.uuid.int % 64
+        key = endpoint.uuid.int % 67
 
         tunnel = None
         if key in key_to_tunnels:
