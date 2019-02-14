@@ -107,7 +107,7 @@ if __name__ == '__main__':
 
     for addr, port, type_, arg in server_list:
         if accept_mode:
-            acceptor = Acceptor()
+            acceptor = Acceptor('TUNNEL')
             acceptor.bind(addr, port)
             acceptor.listen()
             acceptor.set_on_accepted(server_side_on_accepted)
@@ -115,7 +115,7 @@ if __name__ == '__main__':
         else:
             via, to = arg
             if type_ == 'tcp':
-                acceptor = Acceptor()
+                acceptor = Acceptor('TCP')
                 acceptor.bind(addr, port)
                 acceptor.listen()
                 acceptor.set_on_accepted(tcptun.gen_on_client_side_accepted(via, to))

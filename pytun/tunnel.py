@@ -94,8 +94,6 @@ class Tunnel(object):
     def initialize(self):
         if self._stream is None:
             self._stream = Stream(prefix='TUNNEL')
-        else:
-            self._stream.set_prefix('TUNNEL')
 
         self._stream.set_buffer_size(BUFF_SIZE)
         self._stream.set_tcp_no_delay()

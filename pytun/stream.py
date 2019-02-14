@@ -12,7 +12,7 @@ _logger.setLevel(loglevel.DEFAULT_LEVEL)
 
 class Stream(NonBlocking):
 
-    def __init__(self, conn=None, prefix='TCP'):
+    def __init__(self, conn=None, prefix=None):
         if conn is None:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             _logger.debug('fd: %d created', sock.fileno())

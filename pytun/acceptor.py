@@ -11,7 +11,9 @@ _logger = loglevel.get_logger('acceptor')
 
 class Acceptor:
 
-    def __init__(self):
+    def __init__(self, prefix=None):
+        self._prefix = prefix
+
         self._fd = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._fd.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._fd.setblocking(False)
@@ -56,7 +58,7 @@ class Acceptor:
                             _logger.exception(traceback.format_exc())
                 return
             else:
-                new_stream = Stream(sock)
+                new_stream = Stream(sock, prefix=self._prefix)
                 new_stream._connected = True
                 try:
                     self._onAccepted(new_stream, addr)

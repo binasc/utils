@@ -57,8 +57,8 @@ class NonBlocking(object):
 
         self._errorType = socket.error
 
-        self._decodeError = False
-        self._onDecodeError = None
+        self._decode_error = False
+        self._on_decode_error = None
 
     def __hash__(self):
         return hash(self._fd.fileno())
@@ -73,9 +73,6 @@ class NonBlocking(object):
             return "%s: #" % self._prefix
         else:
             return "%s: %d" % (self._prefix, self._fd.fileno())
-
-    def set_prefix(self, prefix):
-        self._prefix = prefix
 
     def set_non_blocking(self):
         raise NotImplemented
@@ -96,7 +93,7 @@ class NonBlocking(object):
         self._on_closed = on_closed
 
     def set_on_decode_error(self, on_decode_error):
-        self._onDecodeError = on_decode_error
+        self._on_decode_error = on_decode_error
 
     def append_send_handler(self, handler):
         self._encoders.append(handler)
@@ -186,7 +183,7 @@ class NonBlocking(object):
                     _logger.warning('%s, discard %d packages', str(self), left)
                     self._to_send.clear()
                 self._shutdown()
-                break
+                return
             try:
                 sent = self._send(data, addr)
                 sent_bytes += sent
@@ -210,7 +207,7 @@ class NonBlocking(object):
             self._stop_sending()
 
         if ready_to_send:
-            if self._on_ready_to_send:
+            if self._on_ready_to_send is not None:
                 try:
                     self._on_ready_to_send(self)
                 except Exception as ex:
@@ -219,7 +216,7 @@ class NonBlocking(object):
                     self._error = True
                     self._do_close()
         else:
-            if self._on_send_buffer_full:
+            if self._on_send_buffer_full is not None:
                 try:
                     self._on_send_buffer_full(self)
                 except Exception as ex:
@@ -249,7 +246,7 @@ class NonBlocking(object):
             self._start_sending()
 
     def is_ready_to_send(self):
-        if self.is_closed() or not self._connected:
+        if not self._connected or self.is_closed():
             return False
 
         return Event.isEventSet(self._wev)
@@ -322,7 +319,7 @@ class NonBlocking(object):
             if len(self._remain) > 0:
                 recv = self._remain + recv
 
-            if self._decodeError:
+            if self._decode_error:
                 consumed, processed = [recv], len(recv)
             else:
                 try:
@@ -330,8 +327,8 @@ class NonBlocking(object):
                 except Exception as ex:
                     _logger.error('decode error: %s', str(ex))
                     _logger.error('%s', traceback.format_exc())
-                    if self._onDecodeError is not None:
-                        self._decodeError = True
+                    if self._on_decode_error is not None:
+                        self._decode_error = True
                     else:
                         self._error = True
                         self._do_close()
@@ -346,14 +343,14 @@ class NonBlocking(object):
             stop = False
             try:
                 for data in consumed:
-                    if self._decodeError:
-                        ret = self._onDecodeError(self, data)
+                    if self._decode_error:
+                        ret = self._on_decode_error(self, data)
                     else:
                         ret = self._on_received(self, data, addr)
                     if not ret:
                         stop = True
             except Exception as ex:
-                if self._decodeError:
+                if self._decode_error:
                     _logger.error('_onDecodeError error: %s', str(ex))
                 else:
                     _logger.error('_on_received error: %s', str(ex))
