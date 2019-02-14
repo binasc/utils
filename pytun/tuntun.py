@@ -13,7 +13,6 @@ from dns import DNSRecord
 from dns import QTYPE
 from packet import Packet
 
-import logging
 import loglevel
 _logger = loglevel.get_logger('tuntun')
 _logger.setLevel(loglevel.DEFAULT_LEVEL)
@@ -67,7 +66,7 @@ def update_blocked_address(address):
         for ip in blocked_address:
             fp.write(struct.pack('!I', ip))
         fp.close()
-        _logger.info("Synced %d blocked ip", len(blocked_address))
+        _logger.debug("Synced %d blocked ip", len(blocked_address))
         blocked_address_last_sync = now
 
 
@@ -86,7 +85,7 @@ def update_blocked_domain():
         new_blocked_domain.add(line)
     fp.close()
     blocked_domain = new_blocked_domain
-    _logger.info('updated %d blocked items', len(blocked_domain))
+    _logger.info('Updated %d blocked items', len(blocked_domain))
 
 
 def update_poisoned_domain(domain):

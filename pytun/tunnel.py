@@ -4,7 +4,6 @@ import obscure
 import struct
 import uuid
 
-import logging
 import loglevel
 _logger = loglevel.get_logger('tunnel', loglevel.DEFAULT_LEVEL)
 

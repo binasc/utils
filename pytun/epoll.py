@@ -4,7 +4,6 @@ import os
 import traceback
 from event import Event
 
-import logging
 import loglevel
 _logger = loglevel.get_logger('epoll')
 _logger.setLevel(loglevel.DEFAULT_LEVEL)

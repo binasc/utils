@@ -76,7 +76,7 @@ def gen_on_client_side_accepted(via, to):
 
         tunnel.send_tcp_initial_data(endpoint.uuid, initial_data)
 
-        _logger.info("from %s:%d (%s) connected", from_[0], from_[1], str(endpoint))
+        _logger.debug("socket from %s:%d (%s) connected", from_[0], from_[1], str(endpoint))
 
     return on_accepted
 
@@ -133,7 +133,7 @@ def on_server_side_initialized(tunnel, id_, initial_data):
     json_data = json.loads(initial_data)
     address, port = json_data['addr'], json_data['port']
     endpoint.connect(address, port)
-    _logger.info('connect to: %s:%d (%s)', address, port, str(endpoint))
+    _logger.debug('connect to: %s:%d (%s)', address, port, str(endpoint))
 
 
 def on_stream_fin_received(tunnel_, id_, _):

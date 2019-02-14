@@ -20,6 +20,16 @@ class Stream(NonBlocking):
         else:
             NonBlocking.__init__(self, conn, prefix)
 
+        self._fd.setsockopt(socket.IPPROTO_TCP, socket.SO_KEEPALIVE, 1)
+        if hasattr(socket, "TCP_KEEPIDLE"):
+            self._fd.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 60)
+
+        if hasattr(socket, "TCP_KEEPINTVL"):
+            self._fd.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10)
+
+        if hasattr(socket, "TCP_KEEPCNT"):
+            self._fd.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
+
         self._onConnected = None
 
     def set_cong_algorithm(self, algorithm):

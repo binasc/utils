@@ -2,7 +2,6 @@ import time
 import heapq
 import traceback
 
-import logging
 import loglevel
 _logger = loglevel.get_logger('event')
 _logger.setLevel(loglevel.DEFAULT_LEVEL)

@@ -4,7 +4,6 @@ import traceback
 from event import Event
 from collections import deque
 
-import logging
 import loglevel
 _logger = loglevel.get_logger('non-blocking')
 _logger.setLevel(loglevel.DEFAULT_LEVEL)
@@ -107,6 +106,8 @@ class NonBlocking(object):
 
     def start_receiving(self):
         _logger.debug('%s, start_receiving', str(self))
+        if self._cev is not None:
+            return
         if not self._connected or self._fin_received or self.is_closed():
             return
         if not Event.isEventSet(self._rev):
@@ -140,8 +141,7 @@ class NonBlocking(object):
                 self._on_fin_received(self)
             except Exception as ex:
                 _logger.error('_on_fin_received: %s', str(ex))
-                if _logger.level <= logging.DEBUG:
-                    _logger.error('%s', traceback.format_exc())
+                _logger.error('%s', traceback.format_exc())
                 self._error = True
                 self._do_close()
                 return
@@ -154,6 +154,8 @@ class NonBlocking(object):
 
     def _start_sending(self):
         _logger.debug('%s, _start_sending', str(self))
+        if self._cev is not None:
+            return
         if not Event.isEventSet(self._wev):
             _logger.debug('%s, _start_sending::addEvent', str(self))
             Event.addEvent(self._wev)
@@ -181,7 +183,7 @@ class NonBlocking(object):
             if data is None:
                 left = len(self._to_send)
                 if left != 0:
-                    _logger.info('%s, discard %d packages', str(self), left)
+                    _logger.warning('%s, discard %d packages', str(self), left)
                     self._to_send.clear()
                 self._shutdown()
                 break
@@ -193,8 +195,8 @@ class NonBlocking(object):
             except self._errorType as msg:
                 self._to_send.appendleft((data, addr))
                 if msg.errno != errno.EAGAIN and msg.errno != errno.EINPROGRESS:
-                    _logger.error('%s, send(%d): %s',
-                                  str(self), msg.errno, msg.strerror)
+                    _logger.warning('%s, send(%d): %s',
+                                    str(self), msg.errno, msg.strerror)
                     self._error = True
                     self._do_close()
                     return
@@ -213,8 +215,7 @@ class NonBlocking(object):
                     self._on_ready_to_send(self)
                 except Exception as ex:
                     _logger.error('_on_ready_to_send: %s', str(ex))
-                    if _logger.level <= logging.DEBUG:
-                        _logger.error('%s', traceback.format_exc())
+                    _logger.error('%s', traceback.format_exc())
                     self._error = True
                     self._do_close()
         else:
@@ -223,8 +224,7 @@ class NonBlocking(object):
                     self._on_send_buffer_full(self)
                 except Exception as ex:
                     _logger.error('_on_send_buffer_full: %s', str(ex))
-                    if _logger.level <= logging.DEBUG:
-                        _logger.error('%s', traceback.format_exc())
+                    _logger.error('%s', traceback.format_exc())
                     self._error = True
                     self._do_close()
 
@@ -313,8 +313,8 @@ class NonBlocking(object):
                 _logger.debug("%s, received %d bytes", str(self), len(recv))
             except self._errorType as msg:
                 if msg.errno != errno.EAGAIN and msg.errno != errno.EINPROGRESS:
-                    _logger.error('%s, recv occurs error(%d): %s',
-                                  str(self), msg.errno, msg.strerror)
+                    _logger.warning('%s, recv occurs error(%d): %s',
+                                    str(self), msg.errno, msg.strerror)
                     self._error = True
                     self._do_close()
                 return
@@ -329,8 +329,7 @@ class NonBlocking(object):
                     consumed, processed = self._decode(recv)
                 except Exception as ex:
                     _logger.error('decode error: %s', str(ex))
-                    if _logger.level <= logging.DEBUG:
-                        _logger.error('%s', traceback.format_exc())
+                    _logger.error('%s', traceback.format_exc())
                     if self._onDecodeError is not None:
                         self._decodeError = True
                     else:
@@ -358,8 +357,7 @@ class NonBlocking(object):
                     _logger.error('_onDecodeError error: %s', str(ex))
                 else:
                     _logger.error('_on_received error: %s', str(ex))
-                if _logger.level <= logging.DEBUG:
-                    _logger.error('%s', traceback.format_exc())
+                _logger.error('%s', traceback.format_exc())
                 self._error = True
                 self._do_close()
                 return
@@ -390,17 +388,11 @@ class NonBlocking(object):
                 self._on_closed(self)
             except Exception as ex:
                 _logger.error('_on_closed: %s', ex)
-                if _logger.level <= logging.DEBUG:
-                    _logger.error('%s', traceback.format_exc())
+                _logger.error('%s', traceback.format_exc())
 
-    def _shutdown(self, force=False):
+    def _shutdown(self):
         _logger.debug('%s, _shutdown', str(self))
-        if self.is_closed() or (self._fin_sent and force is False):
-            return
-
-        if force:
-            self._error = True
-            self._do_close()
+        if self.is_closed() or self._fin_sent:
             return
 
         if len(self._to_send) == 0:
@@ -424,4 +416,6 @@ class NonBlocking(object):
 
     def close(self):
         _logger.debug('%s, close', str(self))
-        self._shutdown(force=True)
+        self._stop_sending()
+        self.stop_receiving()
+        self._do_close()
