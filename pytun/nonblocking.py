@@ -9,6 +9,9 @@ _logger = loglevel.get_logger('non-blocking')
 _logger.setLevel(loglevel.DEFAULT_LEVEL)
 
 
+FIN_WAIT_TIMEOUT = 120 * 1000
+
+
 class NonBlocking(object):
 
     class _ReceiveHandlerContext(object):
@@ -43,7 +46,8 @@ class NonBlocking(object):
         self._on_fin_received = None
         self._on_closed = None
 
-        self._cev = None
+        self._fin_ev = None
+        self._close_ev = None
 
         self._wev = Event()
         self._wev.set_write(True)
@@ -103,7 +107,7 @@ class NonBlocking(object):
 
     def start_receiving(self):
         _logger.debug('%s, start_receiving', str(self))
-        if self._cev is not None:
+        if self._close_ev is not None:
             return
         if not self._connected or self._fin_received or self.is_closed():
             return
@@ -122,9 +126,9 @@ class NonBlocking(object):
         if self._error:
             self._stop_sending()
             self.stop_receiving()
-        if self._cev is None:
-            self._cev = Event.add_timer(0)
-            self._cev.set_handler(lambda ev: self._on_close())
+        if self._close_ev is None:
+            self._close_ev = Event.add_timer(0)
+            self._close_ev.set_handler(lambda ev: self._on_close())
 
     def _receive_fin(self):
         _logger.debug('%s, _receive_fin', str(self))
@@ -151,7 +155,7 @@ class NonBlocking(object):
 
     def _start_sending(self):
         _logger.debug('%s, _start_sending', str(self))
-        if self._cev is not None:
+        if self._close_ev is not None:
             return
         if not Event.isEventSet(self._wev):
             _logger.debug('%s, _start_sending::addEvent', str(self))
@@ -171,6 +175,9 @@ class NonBlocking(object):
                 self._do_close()
             else:
                 self.start_receiving()
+                assert(self._fin_ev is None)
+                self._fin_ev = Event.add_timer(FIN_WAIT_TIMEOUT)
+                self._fin_ev.set_handler(lambda ev: self._do_close())
             return
 
         sent_bytes = 0
@@ -369,10 +376,13 @@ class NonBlocking(object):
         raise NotImplemented
 
     def is_closed(self):
-        return self._cev is not None or self._closed
+        return self._close_ev is not None or self._closed
 
     def _on_close(self):
         _logger.debug('%s, _on_close', str(self))
+
+        if self._fin_ev is not None:
+            self._fin_ev.del_timer();
 
         assert(not Event.isEventSet(self._wev))
         assert(not Event.isEventSet(self._rev))
@@ -402,10 +412,11 @@ class NonBlocking(object):
                 self._send_fin()
         else:
             _logger.debug('delay shutdown')
-            # append poison
             if self._fin_appended is False:
+                # append poison
                 self._to_send.append((None, None))
                 self._fin_appended = True
+                self._start_sending()
 
     def shutdown(self):
         _logger.debug('%s, shutdown', str(self))
