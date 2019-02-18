@@ -167,6 +167,11 @@ class NonBlocking(object):
             _logger.debug('%s, _stop_sending::delEvent', str(self))
             Event.delEvent(self._wev)
 
+    def _wait_fin_timeout(self):
+        _logger.warning('%s, _wait_fin_timeout', str(self))
+        self.stop_receiving()
+        self._do_close()
+
     def _on_send(self):
         _logger.debug('%s, _on_send', str(self))
         if self._fin_sent:
@@ -178,7 +183,7 @@ class NonBlocking(object):
                 assert(self._fin_ev is None)
                 _logger.debug('%s, add fin wait timer', str(self))
                 self._fin_ev = Event.add_timer(FIN_WAIT_TIMEOUT)
-                self._fin_ev.set_handler(lambda ev: self._do_close())
+                self._fin_ev.set_handler(lambda ev: self._wait_fin_timeout())
             return
 
         sent_bytes = 0
