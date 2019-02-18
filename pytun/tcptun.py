@@ -116,7 +116,7 @@ def on_server_side_initialized(tunnel, id_, initial_data):
             endpoint_.close()
         tunnel.clear_connections()
 
-    endpoint = Stream()
+    endpoint = Stream(prefix='TCP')
     endpoint.uuid = id_
 
     tunnel.register(endpoint.uuid, endpoint)
