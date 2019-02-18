@@ -91,6 +91,10 @@ class Tunnel(object):
             self._hb_event.del_timer()
             self._hb_event = None
 
+    def _on_fin_received(self):
+        self._disable_heartbeat()
+        self._stream.close()
+
     def initialize(self):
         if self._stream is None:
             self._stream = Stream(prefix='TUNNEL')
@@ -117,7 +121,7 @@ class Tunnel(object):
         self._stream.set_on_ready_to_send(lambda _: self._on_tunnel_ready_to_send())
         self._stream.set_on_send_buffer_full(lambda _: self._on_tunnel_send_buffer_full())
         self._stream.set_on_received(lambda _, data, addr: self._on_received(data, addr))
-        self._stream.set_on_fin_received(lambda _: self._disable_heartbeat())
+        self._stream.set_on_fin_received(lambda _: self._on_fin_received())
         self._stream.set_on_closed(lambda _: self._on_closed())
         self._stream.set_on_decode_error(lambda _, received: self._on_decode_error(received))
 
