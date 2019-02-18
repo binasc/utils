@@ -176,6 +176,7 @@ class NonBlocking(object):
             else:
                 self.start_receiving()
                 assert(self._fin_ev is None)
+                _logger.debug('%s, add fin wait timer', str(self))
                 self._fin_ev = Event.add_timer(FIN_WAIT_TIMEOUT)
                 self._fin_ev.set_handler(lambda ev: self._do_close())
             return
@@ -332,11 +333,12 @@ class NonBlocking(object):
                 try:
                     consumed, processed = self._decode(recv)
                 except Exception as ex:
-                    _logger.error('decode error: %s', str(ex))
-                    _logger.error('%s', traceback.format_exc())
                     if self._on_decode_error is not None:
+                        _logger.debug('decode error: %s', str(ex))
                         self._decode_error = True
                     else:
+                        _logger.error('decode error: %s', str(ex))
+                        _logger.error('%s', traceback.format_exc())
                         self._error = True
                         self._do_close()
                         return
