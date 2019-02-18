@@ -103,7 +103,7 @@ class Kqueue:
                     event.get_handler()(event)
             except Exception as ex:
                 self._close_fd(event.get_fd())
-                _logger.warning('event handler exception: %s', str(ex))
+                _logger.warning('%s, event handler exception', str(ex))
                 traceback.print_exc()
 
         current_time = time.time()
