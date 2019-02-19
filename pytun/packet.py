@@ -16,6 +16,10 @@ class Packet(object):
         self._udp_delta = 0
         self._tcp_delta = 0
 
+        # cache
+        self._source_ip_str = None
+        self._destination_ip_str = None
+
     def _parse_ip(self):
         if self._ip is None:
             ver_ihl, _, packet_length, _, _, protocol, checksum, sip, dip =\
@@ -116,7 +120,10 @@ class Packet(object):
 
     def get_source_ip(self):
         self._parse_ip()
-        return socket.inet_ntop(socket.AF_INET, struct.pack('!I', self._ip['sip']))
+        if self._source_ip_str is None:
+            self._source_ip_str = socket.inet_ntop(
+                socket.AF_INET, struct.pack('!I', self._ip['sip']))
+        return self._source_ip_str
 
     def get_raw_destination_ip(self):
         self._parse_ip()
@@ -124,7 +131,10 @@ class Packet(object):
 
     def get_destination_ip(self):
         self._parse_ip()
-        return socket.inet_ntop(socket.AF_INET, struct.pack('!I', self._ip['dip']))
+        if self._destination_ip_str is None:
+            self._destination_ip_str = socket.inet_ntop(
+                socket.AF_INET, struct.pack('!I', self._ip['dip']))
+        return self._destination_ip_str
 
     def get_source_port(self):
         if not self.is_udp() and not self.is_tcp():
@@ -159,6 +169,7 @@ class Packet(object):
         if self.is_tcp():
             self._parse_tcp()
             self._tcp_delta += delta
+        self._source_ip_str = None
 
     def set_raw_destination_ip(self, ip):
         self._parse_ip()
@@ -173,11 +184,11 @@ class Packet(object):
         if self.is_tcp():
             self._parse_tcp()
             self._tcp_delta += delta
+        self._destination_ip_str = None
 
     def get_udp_load(self):
         offset = self._ip['length']
         return self._packet[offset + 8:]
-
 
     def set_udp_load(self, begin, length, replacement):
         offset = self._ip['length'] + 8 + begin

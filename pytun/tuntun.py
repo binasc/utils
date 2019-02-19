@@ -261,20 +261,19 @@ def is_through_tunnel(packet):
             _logger.info("query: %s through tunnel", ', '.join(domain_list))
             change_to_dns_server(packet, id_, CLEAN_DNS_SERVER)
         else:
-            _logger.info("query: %s through directly", ', '.join(domain_list))
+            _logger.info("query: %s directly", ', '.join(domain_list))
             change_to_dns_server(packet, id_, FAST_DNS_SERVER)
 
     dst_ip = packet.get_raw_destination_ip()
     if not through_tunnel:
         if dst_ip in blocked_address:
-            _logger.debug('address: %s sent via tunnel',
-                          socket.inet_ntop(socket.AF_INET, struct.pack('!I', dst_ip)))
+            _logger.debug('address: %s sent via tunnel', packet.get_destination_ip())
             through_tunnel = True
 
     if not through_tunnel and not dns_query and dst_ip not in normal_address:
-        _logger.info('unknown address: %s:%d sent directly',
-                     socket.inet_ntop(socket.AF_INET, struct.pack('!I', dst_ip)),
-                     packet.get_destination_port())
+        _logger.info('unknown address: %s %s:%d (from: %s:%d) sent directly', packet.get_protocol(),
+                     packet.get_destination_ip(), packet.get_destination_port(),
+                     packet.get_source_ip(), packet.get_source_port())
         through_tunnel = False
 
     return through_tunnel, dns_query
