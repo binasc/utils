@@ -168,7 +168,7 @@ class NonBlocking(object):
             Event.delEvent(self._wev)
 
     def _wait_fin_timeout(self):
-        _logger.warning('%s, _wait_fin_timeout', str(self))
+        _logger.debug('%s, _wait_fin_timeout', str(self))
         self.stop_receiving()
         self._do_close()
 

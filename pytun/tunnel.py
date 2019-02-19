@@ -138,8 +138,8 @@ class Tunnel(object):
 
     def deregister(self, key):
         _logger.debug('%s, deregister(%s)', str(self), str(key))
-        assert(key in self.connections)
-        del self.connections[key]
+        if key in self.connections:
+            del self.connections[key]
 
     def get_connection(self, key):
         if key in self.connections:
