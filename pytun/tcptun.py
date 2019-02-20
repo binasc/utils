@@ -39,14 +39,17 @@ def gen_on_client_side_accepted(via, to):
                 endpoint_.send(data)
 
         def on_tunnel_ready_to_send(_):
+            _logger.debug('%s tunnel ready to send', str(tunnel))
             for endpoint_ in tunnel.connections.values():
                 endpoint_.start_receiving()
 
         def on_tunnel_send_buffer_full(_):
+            _logger.debug('%s tunnel full', str(tunnel))
             for endpoint_ in tunnel.connections.values():
                 endpoint_.stop_receiving()
 
         def on_tunnel_closed(_):
+            _logger.debug('%s tunnel closed', str(tunnel))
             for endpoint_ in tunnel.connections.values():
                 endpoint_.close()
             tunnel.clear_connections()
@@ -104,14 +107,17 @@ def on_server_side_initialized(tunnel, id_, initial_data):
             endpoint_.send(data)
 
     def on_tunnel_ready_to_send(_):
+        _logger.debug('%s tunnel ready to send', str(tunnel))
         for endpoint_ in tunnel.connections.values():
             endpoint_.start_receiving()
 
     def on_tunnel_send_buffer_full(_):
+        _logger.debug('%s tunnel full', str(tunnel))
         for endpoint_ in tunnel.connections.values():
             endpoint_.stop_receiving()
 
     def on_tunnel_closed(_):
+        _logger.debug('%s tunnel closed', str(tunnel))
         for endpoint_ in tunnel.connections.values():
             endpoint_.close()
         tunnel.clear_connections()

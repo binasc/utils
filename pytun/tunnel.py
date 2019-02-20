@@ -101,10 +101,7 @@ class Tunnel(object):
 
         self._stream.set_buffer_size(BUFF_SIZE)
         self._stream.set_tcp_no_delay()
-        # try:
-        #     self._stream.set_cong_algorithm('hybla')
-        # except Exception as ex:
-        #     _logger.warning('set_cong_algorithm failed: %s' % str(ex))
+
         self._stream.append_send_handler(obscure.pack_data)
         self._stream.append_send_handler(obscure.random_padding)
         # self._stream.append_send_handler(obscure.gen_aes_encrypt())
@@ -123,11 +120,11 @@ class Tunnel(object):
         self._stream.set_on_received(lambda _, data, addr: self._on_received(data, addr))
         self._stream.set_on_fin_received(lambda _: self._on_fin_received())
         self._stream.set_on_closed(lambda _: self._on_closed())
-        self._stream.set_on_decode_error(lambda _, received: self._on_decode_error(received))
 
         if self._connect_to is not None:
             self._stream.connect(*self._connect_to)
         else:
+            self._stream.set_on_decode_error(lambda _, received: self._on_decode_error(received))
             self._stream.start_receiving()
         self._enable_heartbeat()
 
@@ -235,7 +232,7 @@ class Tunnel(object):
     def _on_decode_error(self, received):
         self._disable_heartbeat()
         self._stream._encoders = []
-        backend = Stream()
+        backend = Stream(prefix="SIMPLE")
 
         def tunnel_ready_to_send(_):
             backend.start_receiving()

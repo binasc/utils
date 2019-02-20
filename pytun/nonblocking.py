@@ -9,6 +9,7 @@ _logger = loglevel.get_logger('non-blocking')
 _logger.setLevel(loglevel.DEFAULT_LEVEL)
 
 
+SEND_BUFFER = 128 * 1024
 FIN_WAIT_TIMEOUT = 120 * 1000
 
 
@@ -18,7 +19,7 @@ class NonBlocking(object):
 
         def __init__(self, handler):
             self.handler = handler
-            self.remain = ''
+            self.remain = []
 
     def __init__(self, fd, prefix=None):
         self._fd = fd
@@ -26,11 +27,10 @@ class NonBlocking(object):
         self.set_non_blocking()
 
         self._to_send = deque()
+        self._to_send_bytes = 0
 
         self._encoders = []
         self._decoders = []
-
-        self._remain = ''
 
         self._error = False
 
@@ -172,6 +172,26 @@ class NonBlocking(object):
         self.stop_receiving()
         self._do_close()
 
+    def _to_send_or_not(self, ready_to_send):
+        if ready_to_send and self._to_send_bytes < SEND_BUFFER:
+            if self._on_ready_to_send is not None:
+                try:
+                    self._on_ready_to_send(self)
+                except Exception as ex:
+                    _logger.error('_on_ready_to_send: %s', str(ex))
+                    _logger.error('%s', traceback.format_exc())
+                    self._error = True
+                    self._do_close()
+        else:
+            if self._on_send_buffer_full is not None:
+                try:
+                    self._on_send_buffer_full(self)
+                except Exception as ex:
+                    _logger.error('_on_send_buffer_full: %s', str(ex))
+                    _logger.error('%s', traceback.format_exc())
+                    self._error = True
+                    self._do_close()
+
     def _on_send(self):
         _logger.debug('%s, _on_send', str(self))
         if self._fin_sent:
@@ -195,11 +215,13 @@ class NonBlocking(object):
                 if left != 0:
                     _logger.warning('%s, discard %d packages', str(self), left)
                     self._to_send.clear()
+                    self._to_send_bytes = 0
                 self._shutdown()
                 return
             try:
                 sent = self._send(data, addr)
                 sent_bytes += sent
+                self._to_send_bytes -= sent
                 if sent < len(data):
                     self._to_send.appendleft((data[sent:], addr))
             except self._errorType as msg:
@@ -219,24 +241,7 @@ class NonBlocking(object):
         if len(self._to_send) == 0:
             self._stop_sending()
 
-        if ready_to_send:
-            if self._on_ready_to_send is not None:
-                try:
-                    self._on_ready_to_send(self)
-                except Exception as ex:
-                    _logger.error('_on_ready_to_send: %s', str(ex))
-                    _logger.error('%s', traceback.format_exc())
-                    self._error = True
-                    self._do_close()
-        else:
-            if self._on_send_buffer_full is not None:
-                try:
-                    self._on_send_buffer_full(self)
-                except Exception as ex:
-                    _logger.error('_on_send_buffer_full: %s', str(ex))
-                    _logger.error('%s', traceback.format_exc())
-                    self._error = True
-                    self._do_close()
+        self._to_send_or_not(ready_to_send)
 
     def send(self, data, addr=None):
         _logger.debug('%s, send', str(self))
@@ -249,6 +254,7 @@ class NonBlocking(object):
             to_send = encoder(to_send)
 
         self._to_send.append((to_send, addr))
+        self._to_send_bytes += len(to_send)
 
         if addr is not None:
             _logger.debug('%s, sending %d(%d) bytes to %s:%d', str(self), len(to_send), len(data), *addr)
@@ -257,6 +263,8 @@ class NonBlocking(object):
 
         if self._connected:
             self._start_sending()
+
+        self._to_send_or_not(True)
 
     def is_ready_to_send(self):
         if not self._connected or self.is_closed():
@@ -267,49 +275,53 @@ class NonBlocking(object):
     def _recv(self, size):
         raise NotImplemented
 
-    def _decode_single_depth(self, depth, data):
-        # _logger.debug('%s, _decode_single_depth', str(self))
-        context = self._decoders[depth]
-        if len(context.remain) > 0:
-            data = context.remain + data
-        total_consumed = []
-        total_processed = 0
+    def _decode_single_depth(self, handler, data_list):
+        _logger.debug('%s, _decode_single_depth', str(self))
+        if len(data_list) == 0:
+            return [], 0, []
+        total_processed = []
+        total_consumed_bytes = 0
+        to_process = data_list[0]
+        total_consumed_count = 1
         while True:
-            consumed, processed = context.handler(data[total_processed:])
-            if processed == 0:
-                break
-            if consumed is not None:
-                total_consumed.append(consumed)
-            total_processed += processed
-        if total_processed < len(data):
-            context.remain = data[total_processed:]
-        else:
-            context.remain = ''
-        return total_consumed, total_processed
+            processed, consumed_bytes = handler(to_process)
+            if consumed_bytes == 0:
+                if total_consumed_count < len(data_list):
+                    to_process += data_list[total_consumed_count]
+                    total_consumed_count += 1
+                else:
+                    break
+            else:
+                to_process = to_process[consumed_bytes:]
+            if processed is not None:
+                total_processed.append(processed)
+            total_consumed_bytes += consumed_bytes
+        remain = []
+        if len(to_process) > 0:
+            remain.append(to_process)
+        remain.extend(data_list[total_consumed_count:])
+        return total_processed, total_consumed_bytes, remain
 
     def _decode(self, data):
         _logger.debug('%s, _decode', str(self))
         if len(self._decoders) == 0:
-            return [data], len(data)
+            return [data]
 
         total_consumed = []
-        total_processed = 0
-        while True:
-            loop_processed = 0
-            to_consume = data[total_processed:]
-            for depth in range(len(self._decoders)):
-                consumed, processed = self._decode_single_depth(depth, to_consume)
-                if processed == 0:
-                    break
-                if depth == 0:
-                    total_processed += processed
-                    loop_processed += processed
-                if depth == len(self._decoders) - 1:
-                    total_consumed.extend(consumed)
-                to_consume = reduce(lambda l, r: l + r, consumed, '')
-            if loop_processed == 0:
+        to_consume = [data]
+        for depth in range(len(self._decoders)):
+            context = self._decoders[depth]
+            if len(context.remain) > 0:
+                context.remain.extend(to_consume)
+                to_consume = context.remain
+            consumed, processed, remain = self._decode_single_depth(context.handler, to_consume)
+            context.remain = remain
+            if processed == 0:
                 break
-        return total_consumed, total_processed
+            if depth == len(self._decoders) - 1:
+                total_consumed.extend(consumed)
+            to_consume = consumed
+        return total_consumed
 
     def _on_receive(self):
         _logger.debug('%s, _on_receive', str(self))
@@ -329,14 +341,11 @@ class NonBlocking(object):
                     self._do_close()
                 return
 
-            if len(self._remain) > 0:
-                recv = self._remain + recv
-
             if self._decode_error:
-                consumed, processed = [recv], len(recv)
+                consumed = [recv]
             else:
                 try:
-                    consumed, processed = self._decode(recv)
+                    consumed = self._decode(recv)
                 except Exception as ex:
                     if self._on_decode_error is not None:
                         _logger.debug('decode error: %s', str(ex))
@@ -347,12 +356,7 @@ class NonBlocking(object):
                         self._error = True
                         self._do_close()
                         return
-                    consumed, processed = [recv], len(recv)
-
-            if processed < len(recv):
-                self._remain = recv[processed:]
-            else:
-                self._remain = ''
+                    consumed = [recv]
 
             stop = False
             try:
@@ -389,7 +393,7 @@ class NonBlocking(object):
         _logger.debug('%s, _on_close', str(self))
 
         if self._fin_ev is not None:
-            self._fin_ev.del_timer();
+            self._fin_ev.del_timer()
 
         assert(not Event.isEventSet(self._wev))
         assert(not Event.isEventSet(self._rev))

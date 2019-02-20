@@ -12,9 +12,11 @@ random.seed()
 
 
 def pack_data(data):
+    date_length = len(data)
+    _logger.debug('packed %d bytes', date_length)
     if len(data) > 2 ** 32 - 1:
-        _logger.error('too large packet(%d bytes)', len(data))
-    return struct.pack('!I', len(data)) + data
+        _logger.error('too large packet(%d bytes)', date_length)
+    return struct.pack('!I', date_length) + data
 
 
 def unpack_data(data):
@@ -23,7 +25,9 @@ def unpack_data(data):
         return None, 0
     size = struct.unpack('!I', data[: 4])[0]
     if length < 4 + size:
+        _logger.debug('try unpack %d bytes, actually received %d bytes', size, length)
         return None, 0
+    _logger.debug('unpacked %d bytes', size)
     return data[4: 4 + size], 4 + size
 
 
@@ -162,7 +166,7 @@ http_request = (
 
 
 http_response = (
-    'HTTP/1.1 200 OK\r\n'
+    'HTTP/1.1 201 CREATED\r\n'
     'Server: nginx/1.10.3 (Ubuntu)\r\n'
     'Connection: keep-alive\r\n'
     'Content-Type: image/x-ms-bmp\r\n'
