@@ -172,8 +172,15 @@ class NonBlocking(object):
         self.stop_receiving()
         self._do_close()
 
+    def _to_send_or_not_policy(self):
+        if len(self._to_send) > 1:
+            return False
+        if self._to_send_bytes > SEND_BUFFER:
+            return False
+        return True
+
     def _to_send_or_not(self, ready_to_send):
-        if ready_to_send and self._to_send_bytes < SEND_BUFFER:
+        if ready_to_send and self._to_send_or_not_policy():
             if self._on_ready_to_send is not None:
                 try:
                     self._on_ready_to_send(self)
