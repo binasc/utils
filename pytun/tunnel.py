@@ -99,7 +99,7 @@ class Tunnel(object):
         if self._stream is None:
             self._stream = Stream(prefix='TUNNEL')
 
-        self._stream.set_buffer_size(BUFF_SIZE)
+        # self._stream.set_buffer_size(BUFF_SIZE)
         self._stream.set_tcp_no_delay()
 
         self._stream.append_send_handler(obscure.pack_data)

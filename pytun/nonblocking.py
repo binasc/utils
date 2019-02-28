@@ -9,7 +9,7 @@ _logger = loglevel.get_logger('non-blocking')
 _logger.setLevel(loglevel.DEFAULT_LEVEL)
 
 
-SEND_BUFFER = 128 * 1024
+SEND_BUFFER = 512 * 1024
 FIN_WAIT_TIMEOUT = 120 * 1000
 
 
@@ -173,8 +173,8 @@ class NonBlocking(object):
         self._do_close()
 
     def _to_send_or_not_policy(self):
-        if len(self._to_send) > 1:
-            return False
+        # if len(self._to_send) > 10:
+        #     return False
         if self._to_send_bytes > SEND_BUFFER:
             return False
         return True
