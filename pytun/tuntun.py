@@ -243,8 +243,12 @@ def test_domain_poisoned(tun, packet):
 key_to_tunnels = {}
 
 
-def is_through_tunnel(packet):
+def is_through_tunnel(packet, to_addr):
     if global_proxy:
+        return True, False
+
+    dst_ip = packet.get_raw_destination_ip()
+    if dst_ip == to_addr:
         return True, False
 
     through_tunnel = False
@@ -264,7 +268,6 @@ def is_through_tunnel(packet):
             _logger.info("query: %s directly", ', '.join(domain_list))
             change_to_dns_server(packet, id_, FAST_DNS_SERVER)
 
-    dst_ip = packet.get_raw_destination_ip()
     if not through_tunnel:
         if dst_ip in blocked_address:
             _logger.debug('address: %s sent via tunnel', packet.get_destination_ip())
@@ -282,6 +285,7 @@ def is_through_tunnel(packet):
 def gen_on_client_side_received(tundev, from_, via, to):
 
     from_addr = ip_string_to_long(from_[0])
+    to_addr = ip_string_to_long(to[0])
 
     def on_tunnel_received(_, __, data):
         packet = Packet(data)
@@ -309,7 +313,7 @@ def gen_on_client_side_received(tundev, from_, via, to):
             tun_device.send(packet.get_packet())
             return True
 
-        through_tunnel, dns_query = is_through_tunnel(packet)
+        through_tunnel, dns_query = is_through_tunnel(packet, to_addr)
         if not through_tunnel:
             if dns_query is True:
                 test_domain_poisoned(tun_device, packet)
