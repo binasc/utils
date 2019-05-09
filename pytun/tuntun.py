@@ -145,6 +145,38 @@ observer.schedule(event_handler, path='./', recursive=False)
 observer.start()
 
 
+class CIRD(object):
+
+    def __init__(self, prefix, mask):
+        self._raw_prefix = ip_string_to_long(prefix)
+        self._raw_mask = ip_string_to_long('.'.join([str((0xffffffff << (32 - mask) >> i) & 0xff)
+                                                     for i in [24, 16, 8, 0]]))
+
+    def match(self, raw_ip):
+        return self._raw_prefix == (raw_ip & self._raw_mask)
+
+
+reversed_addresses = (
+    CIRD('0.0.0.0', 8),
+    CIRD('10.0.0.0', 8),
+    CIRD('100.64.0.0', 10),
+    CIRD('127.0.0.0', 8),
+    CIRD('169.254.0.0', 16),
+    CIRD('172.16.0.0', 12),
+    CIRD('192.0.0.0', 24),
+    CIRD('192.0.2.0', 24),
+    CIRD('192.0.2.0', 24),
+    CIRD('192.88.99.0', 24),
+    CIRD('192.168.0.0', 16),
+    CIRD('198.18.0.0', 15),
+    CIRD('198.51.100.0', 24),
+    CIRD('203.0.113.0', 24),
+    CIRD('224.0.0.0', 4),
+    CIRD('240.0.0.0', 4),
+    CIRD('255.255.255.255', 32)
+)
+
+
 def is_domain_blocked(domain):
     global blocked_domain
     global poisoned_domain
@@ -250,6 +282,13 @@ def is_through_tunnel(packet, to_addr):
     dst_ip = packet.get_raw_destination_ip()
     if dst_ip == to_addr:
         return True, False
+
+    for address in reversed_addresses:
+        if address.match(dst_ip):
+            _logger.info('destination ip is reversed one: %s:%d, from: %s:%d',
+                         packet.get_destination_ip(), packet.get_destination_port(),
+                         packet.get_source_ip(), packet.get_source_port())
+            return False, False
 
     through_tunnel = False
     dns_query = False
