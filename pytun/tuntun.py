@@ -195,7 +195,7 @@ def change_src(packet):
 
 
 def need_restore(original, packet):
-    return packet.get_raw_destination_ip() == original + 1
+    return packet.is_ipv4() and packet.get_raw_destination_ip() == original + 1
 
 
 def restore_dst(packet):
@@ -231,14 +231,9 @@ def try_parse_dns_result(packet):
     return None, None, None
 
 
-def address2uuid(tun_addr, prefix, addr, port):
-    packed = struct.pack('!IIHIH', 0, ip_string_to_long(tun_addr), prefix, addr, port)
+def address2uuid(addr, port):
+    packed = struct.pack('!QQ', 0, (addr + port) & 0xFFFFFFFFFFFFFFFFL)
     return uuid.UUID(bytes=packed)
-
-
-def uuid2address(id_):
-    _, tun_addr, prefix, addr, port = struct.unpack('!I4sHIH', id_.get_bytes())
-    return socket.inet_ntop(socket.AF_INET, tun_addr), prefix, addr, port
 
 
 def pack_dns_key(addr, port, id_):
@@ -277,6 +272,9 @@ key_to_tunnels = {}
 
 def is_through_tunnel(packet, to_addr):
     if global_proxy:
+        return True, False
+
+    if packet.is_ipv6():
         return True, False
 
     dst_ip = packet.get_raw_destination_ip()
@@ -360,7 +358,7 @@ def gen_on_client_side_received(tundev, from_, via, to):
             tun_device.send(packet.get_packet())
             return True
 
-        id_ = address2uuid(to[0], to[1], packet.get_raw_source_ip(), packet.get_source_port())
+        id_ = address2uuid(packet.get_raw_source_ip(), packet.get_source_port())
         key = id_.int % TUNNEL_SIZE
         tunnel = None
         if key in key_to_tunnels:
@@ -378,15 +376,13 @@ def gen_on_client_side_received(tundev, from_, via, to):
     return connect_side_multiplex
 
 
-to2tun = {}
+tun_device = None
 
 
 def on_server_side_initialized(tunnel, id_, data):
 
-    tun_addr, prefix, addr, port = uuid2address(id_)
-
     def on_received(_, data_, packet):
-        id__ = address2uuid(tun_addr, prefix, packet.get_raw_destination_ip(), packet.get_destination_port())
+        id__ = address2uuid(packet.get_raw_destination_ip(), packet.get_destination_port())
         key_ = id__.int % TUNNEL_SIZE
         tunnel_ = None
         if key_ in key_to_tunnels:
@@ -397,14 +393,12 @@ def on_server_side_initialized(tunnel, id_, data):
             _logger.warning('unknown dst %s:%d', packet.get_destination_ip(), packet.get_destination_port())
         return True
 
-    tun_addr_prefix = tun_addr + '/' + str(prefix)
-    if tun_addr_prefix in to2tun:
-        tun_device = to2tun[tun_addr_prefix]
-    else:
-        tun_device = TunDevice('tun', tun_addr, prefix)
-        to2tun[tun_addr_prefix] = tun_device
+    global tun_device
+    if tun_device is None:
+        tun_device = TunDevice('', '', 0)
         tun_device.set_on_received(on_received)
         tun_device.start_receiving()
+
     key = id_.int % TUNNEL_SIZE
     key_to_tunnels[key] = tunnel
     tun_device.send(data)

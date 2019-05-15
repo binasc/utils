@@ -48,8 +48,7 @@ class TunDevice(NonBlocking):
             if len(data) < 40 + length:
                 return None, 0
             else:
-                _logger.warning('v6 packet %d bytes is ignored', 40 + length)
-                return None, 40 + length
+                return data[:40 + length], 40 + length
 
         return None, 0
 
@@ -57,17 +56,18 @@ class TunDevice(NonBlocking):
         fd = os.open('/dev/net/tun', os.O_RDWR)
 
         mode = self.IFF_TUN | self.IFF_NO_PI
-        ctrl_str = struct.pack('16sH', prefix + '%d', mode)
+        #ctrl_str = struct.pack('16sH', prefix + '%d', mode)
+        ctrl_str = struct.pack('16sH', 'tun0', mode)
         ifs = fcntl.ioctl(fd, self.TUNSETIFF, ctrl_str)
         self._ifname = ifs[:16].strip("\x00")
 
-        if isinstance(netmask, int):
-            # convert cidr prefix to netmask
-            netmask = '.'.join([str((0xffffffff << (32 - netmask) >> i) & 0xff)
-                                for i in [24, 16, 8, 0]])
-        cmd = 'ifconfig %s %s netmask %s up' % (self._ifname, ip, netmask)
-        _logger.debug('ifconfig cmd: ' + cmd)
-        subprocess.check_call(cmd, shell=True)
+        #if isinstance(netmask, int):
+        #    # convert cidr prefix to netmask
+        #    netmask = '.'.join([str((0xffffffff << (32 - netmask) >> i) & 0xff)
+        #                        for i in [24, 16, 8, 0]])
+        #cmd = 'ifconfig %s %s netmask %s up' % (self._ifname, ip, netmask)
+        #_logger.debug('ifconfig cmd: ' + cmd)
+        #subprocess.check_call(cmd, shell=True)
 
         NonBlocking.__init__(self, FileWrapper(fd), 'TUN')
         self._connected = True

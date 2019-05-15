@@ -22,19 +22,33 @@ class Packet(object):
 
     def _parse_ip(self):
         if self._ip is None:
-            ver_ihl, _, packet_length, _, _, protocol, checksum, sip, dip =\
-                struct.unpack('!BBHIBBHII', self._packet[:20])
-            ihl = ver_ihl & 0x0f
+            ver_ihl, = struct.unpack('!B', self._packet[:1])
             ver = (ver_ihl >> 4) & 0x0f
-            self._ip = {
-                'length': ihl * 4,
-                'version': ver,
-                'protocol': protocol,
-                'checksum': checksum,
-                'sip': sip,
-                'dip': dip,
-                'packet_length': packet_length
-            }
+            if ver == 4:
+                ihl = ver_ihl & 0x0f
+                packet_length, _, _, protocol, checksum, sip, dip =\
+                    struct.unpack('!HIBBHII', self._packet[2:20])
+                self._ip = {
+                    'length': ihl * 4,
+                    'version': ver,
+                    'protocol': protocol,
+                    'checksum': checksum,
+                    'sip': sip,
+                    'dip': dip,
+                    'packet_length': packet_length
+                }
+            elif ver == 6:
+                payload_length, _, sip_hi, sip_lo, dip_hi, dip_lo =\
+                    struct.unpack('!HHQQQQ', self._packet[4: 40])
+                self._ip = {
+                    'length': 40,
+                    'version': ver,
+                    'protocol': None,
+                    'checksum': None,
+                    'sip': (sip_hi << 64) | sip_lo,
+                    'dip': (dip_hi << 64) | dip_lo,
+                    'packet_length': 40 + payload_length
+                }
 
     @staticmethod
     def _checksum(original, delta):
@@ -100,6 +114,14 @@ class Packet(object):
         self._parse_ip()
         return self._ip['packet_length']
 
+    def is_ipv4(self):
+        self._parse_ip()
+        return self._ip['version'] == 4
+
+    def is_ipv6(self):
+        self._parse_ip()
+        return self._ip['version'] == 6
+
     def is_udp(self):
         self._parse_ip()
         return self._ip['protocol'] == self.PROTO_UDP
@@ -121,8 +143,13 @@ class Packet(object):
     def get_source_ip(self):
         self._parse_ip()
         if self._source_ip_str is None:
-            self._source_ip_str = socket.inet_ntop(
-                socket.AF_INET, struct.pack('!I', self._ip['sip']))
+            if self.is_ipv4():
+                self._source_ip_str = socket.inet_ntop(
+                    socket.AF_INET, struct.pack('!I', self._ip['sip']))
+            elif self.is_ipv6():
+                sip = self._ip['sip']
+                self._source_ip_str = socket.inet_ntop(
+                    socket.AF_INET6, struct.pack('!QQ', sip >> 64, sip & 0xFFFFFFFFFFFFFFFFL))
         return self._source_ip_str
 
     def get_raw_destination_ip(self):
@@ -132,8 +159,13 @@ class Packet(object):
     def get_destination_ip(self):
         self._parse_ip()
         if self._destination_ip_str is None:
-            self._destination_ip_str = socket.inet_ntop(
-                socket.AF_INET, struct.pack('!I', self._ip['dip']))
+            if self.is_ipv4():
+                self._destination_ip_str = socket.inet_ntop(
+                    socket.AF_INET, struct.pack('!I', self._ip['dip']))
+            elif self.is_ipv6():
+                dip = self._ip['dip']
+                self._destination_ip_str = socket.inet_ntop(
+                    socket.AF_INET6, struct.pack('!QQ', dip >> 64, dip & 0xFFFFFFFFFFFFFFFFL))
         return self._destination_ip_str
 
     def get_source_port(self):
